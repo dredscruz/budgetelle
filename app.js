@@ -365,10 +365,13 @@ function renderDashboard(){
     kpi('Subscriptions',expBase>0?Math.round(subTotal/expBase*100)+'% of expenses':fmt(subTotal),'bluetxt', subTotal>0?fmt(subTotal)+' this month':undefined),
     kpi('Net worth',nwv!=null?fmt(nwv):'—','goldtxt', nw?('Assets '+fmt(nw.assets)+' − Liab '+fmt(nw.liabilities)):undefined)
   ].join('');
-  // full currency breakdown table
+  // currency breakdown table
   document.getElementById('dash-currencies').innerHTML=curRows.length?
-    '<h3>Currency breakdown — this month</h3>'+table(['Currency','Income','Expenses','Net'],
-      curRows.map(r=>[r.cur,`<span class="pos">+${fmt(r.inc,r.cur)}</span>`,`<span class="neg">−${fmt(r.exp,r.cur)}</span>`,`<b>${fmt(r.inc-r.exp,r.cur)}</b>`]))
+    '<h3>Currency breakdown — this month</h3>'+table(['Currency','Income','$ Eq','Expenses','$ Eq','Net','$ Eq'],
+      curRows.map(r=>{const bi=toBase(r.inc,r.cur),be=toBase(r.exp,r.cur);return [r.cur,
+        `<span class="pos">+${fmt(r.inc,r.cur)}</span>`,`<span style="color:var(--muted);font-size:12px">≈ ${fmt(bi)}</span>`,
+        `<span class="neg">−${fmt(r.exp,r.cur)}</span>`,`<span style="color:var(--muted);font-size:12px">≈ ${fmt(be)}</span>`,
+        `<b>${fmt(r.inc-r.exp,r.cur)}</b>`,`<span style="color:var(--muted);font-size:12px">≈ ${fmt(bi-be)}</span>`];}))
     :'';
   // cashflow bars
   const months=lastNMonths(6);
@@ -387,9 +390,10 @@ function renderDashboard(){
   renderDonut(document.getElementById('chart-spend'),byCat);
   // recent
   const recent=[...DB.entries].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,7);
-  document.getElementById('dash-recent').innerHTML=recent.length?table(['Date','Type','Category','Amount'],
+  document.getElementById('dash-recent').innerHTML=recent.length?table(['Date','Type','Category','Amount','$ Equivalent'],
     recent.map(e=>[e.date,`<span class="pill ${e.type}">${e.type}</span>`,e.category,
-    `<span class="${e.type==='income'?'pos':'neg'}">${e.type==='income'?'+':'−'}${fmt(e.amount,e.cur)}</span>`])):'<div class="empty">No activity yet.</div>';
+    `<span class="${e.type==='income'?'pos':'neg'}">${e.type==='income'?'+':'−'}${fmt(e.amount,e.cur)}</span>`,
+    eqBase(e.amount,e.cur)])):'<div class="empty">No activity yet.</div>';
   // renewals
   const items=[
     ...DB.insurance.map(i=>({name:i.policy,due:i.due})),
