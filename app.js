@@ -239,8 +239,26 @@ function domCur(list){ /* the currency most of these entries were entered in */
   const c={}; list.forEach(e=>{ c[e.cur||DB.settings.baseCur]=(c[e.cur||DB.settings.baseCur]||0)+1; });
   return Object.entries(c).sort((a,b)=>b[1]-a[1])[0][0];
 }
-function eqBase(amount,cur){ /* $ equivalent string */
-  return '<span style="color:var(--muted);font-size:12px">≈ '+fmt(toBase(amount,cur))+'</span>';
+function eqBase(amount,cur){ /* true USD equivalent — universal reference */
+  const baseAmt=toBase(amount,cur);
+  let usd=baseAmt;
+  if(DB.settings.baseCur!=='USD'){
+    const d=DEFAULT_RATES[DB.settings.baseCur];
+    if(d)usd=baseAmt/d; // base units per 1 USD
+    else{
+      const r=DB.settings.rates['USD']; // 1 USD = ? base
+      if(r)usd=baseAmt/r;
+    }
+  }
+  return '<span style="color:var(--muted);font-size:12px">≈ '+fmt(usd,'USD')+'</span>';
+}
+function usdOf(amount,cur){ /* plain number: USD equivalent */
+  const baseAmt=toBase(amount,cur);
+  if(DB.settings.baseCur==='USD')return baseAmt;
+  const d=DEFAULT_RATES[DB.settings.baseCur];
+  if(d)return baseAmt/d;
+  const r=DB.settings.rates['USD'];
+  return r?baseAmt/r:baseAmt;
 }
 function curSelect(coll,id,cur){ /* inline currency switcher */
   return `<select class="cur-sel" onchange="setCur('${coll}','${id}',this.value)" title="Change currency">${curOptions(cur)}</select>`;
@@ -409,6 +427,12 @@ function renderDashboard(){
   }).join(''):'<div class="empty">Nothing upcoming.</div>';
 }
 function kpi(lbl,val,color,note){return `<div class="kpi"><div class="lbl">${lbl}</div><div class="val ${color||''}">${val}</div>${note?`<div class="note">${note}</div>`:''}</div>`;}
+function kpiUsd(lbl,val,color,note,usd){ /* $ sub-line whenever the tab total isn't already in USD */
+  const parts=[];
+  if(usd!=null&&DB.settings.baseCur!=='USD')parts.push('≈ '+fmt(usd,'USD'));
+  if(note)parts.push(note);
+  return kpi(lbl,val,color,parts.join(' · ')||undefined);
+}
 function table(heads,rows){return `<table><thead><tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;}
 
 function renderDonut(el,byCat,totalLabel){
@@ -439,17 +463,18 @@ function curLineOf(list,type){ /* small line of raw per-currency sums */
 function renderIncome(){
   const tm=myEntries().filter(e=>e.type==='income'&&e.date.startsWith(ymOf(new Date())));
   const total=sumInBase(tm,'income');
-  document.getElementById('income-kpis').innerHTML=kpi('This month',fmt(total),'pos',total?curLineOf(tm,'income'):undefined)
+  document.getElementById('income-kpis').innerHTML=kpiUsd('This month',fmt(total),'pos',total?curLineOf(tm,'income'):undefined,usdOf(sumRaw(tm,'income'),DB.settings.baseCur))
     +kpi('Entries',tm.length)+kpi('Top source',topSrc(tm));
   document.getElementById('income-list').innerHTML=renderEntryTable(tm,'income');
 }
 function renderExpenses(){
   const tm=myEntries().filter(e=>e.type==='expense'&&e.date.startsWith(ymOf(new Date())));
   const total=sumInBase(tm,'expense');
-  document.getElementById('expense-kpis').innerHTML=kpi('This month',fmt(total),'neg',total?curLineOf(tm,'expense'):undefined)
+  document.getElementById('expense-kpis').innerHTML=kpiUsd('This month',fmt(total),'neg',total?curLineOf(tm,'expense'):undefined,usdOf(sumRaw(tm,'expense'),DB.settings.baseCur))
     +kpi('Entries',tm.length)+kpi('Biggest',biggest(tm));
   document.getElementById('expense-list').innerHTML=renderEntryTable(tm,'expense');
 }
+function sumRaw(list,type){return list.filter(e=>e.type===type).reduce((a,e)=>a+toBase(e.amount,e.cur),0);}
 function topSrc(l){const c={};l.forEach(e=>c[e.category]=(c[e.category]||0)+e.amount);const t=Object.entries(c).sort((a,b)=>b[1]-a[1])[0];return t?t[0]:'—';}
 function biggest(l){if(!l.length)return '—';const b=l.reduce((x,y)=>x.amount>y.amount?x:y);return fmt(b.amount,b.cur);}
 function renderEntryTable(list,type){
@@ -503,7 +528,7 @@ function renderBudget(){
   const spentBy={};tm.forEach(e=>spentBy[e.category]=(spentBy[e.category]||0)+toBase(e.amount,e.cur));  const totB=bs.reduce((a,b)=>a+toBase(b.limit,b.cur),0);
   const totS=bs.reduce((a,b)=>a+(spentBy[b.category]||0),0);
   document.getElementById('budget-kpis').innerHTML=
-    kpi('Total budgeted',fmt(totB),'',totB?'≈ '+fmt(totB)+' total':'')+kpi('Spent (tracked cats)',fmt(totS),totS>totB?'neg':'pos')+kpi('Remaining',fmt(totB-totS),totB-totS>=0?'pos':'neg');
+    kpiUsd('Total budgeted',fmt(totB),'',totB?'≈ '+fmt(totB)+' total':'',usdOf(totB,DB.settings.baseCur))+kpi('Spent (tracked cats)',fmt(totS),totS>totB?'neg':'pos')+kpi('Remaining',fmt(totB-totS),totB-totS>=0?'pos':'neg');
   document.getElementById('budget-list').innerHTML=bs.length?bs.map(b=>{
     const sp=spentBy[b.category]||0,pc=Math.min(100,sp/b.limit*100),over=sp>b.limit;
     return `<div style="margin-bottom:18px"><div class="bar-row"><b>${b.category} ${curSelect('budgets',b.id,b.cur)}</b><span>${fmt(sp)} of ${fmt(b.limit,b.cur)} <span style="color:var(--muted);font-size:12px">(≈ ${fmt(toBase(b.limit,b.cur))})</span> ${over?'<span class="pill expense">over</span>':''}</span></div>
@@ -529,7 +554,7 @@ function monthlyEquiv(r){const a=r.amount;return r.freq==='yearly'?a/12:r.freq==
 function renderRecurring(){
   const act=DB.recurring.filter(r=>r.status==='Active');
   document.getElementById('recur-kpis').innerHTML=
-    kpi('Monthly equivalent',fmt(act.reduce((a,r)=>a+toBase(monthlyEquiv(r),r.cur),0)))+kpi('Active items',act.length)
+    kpiUsd('Monthly equivalent',fmt(act.reduce((a,r)=>a+toBase(monthlyEquiv(r),r.cur),0)),'',undefined,usdOf(act.reduce((a,r)=>a+toBase(monthlyEquiv(r),r.cur),0),DB.settings.baseCur))+kpi('Active items',act.length)
     +kpi('Posted this month',postedCount());
   const sorted=[...DB.recurring].sort((a,b)=>(a.next||'').localeCompare(b.next||''));
   document.getElementById('recurring-list').innerHTML=DB.recurring.length?table(['Name','Category','Amount','Currency','$ Eq / mo','Frequency','Next','Status',''],
@@ -643,7 +668,7 @@ function updGoal(e,id){e.preventDefault();const g=DB.goals.find(x=>x.id===id);g.
 function renderAssets(){
   const byCat={};DB.assets.forEach(a=>byCat[a.category]=(byCat[a.category]||0)+toBase(a.value,a.cur));
   const tot=Object.values(byCat).reduce((a,b)=>a+b,0);
-  document.getElementById('asset-kpis').innerHTML=kpi('Total value',fmt(tot),'goldtxt',tot?'≈ '+fmt(tot)+' converted':'')
+  document.getElementById('asset-kpis').innerHTML=kpiUsd('Total value',fmt(tot),'goldtxt','',usdOf(tot,DB.settings.baseCur))
     +Object.entries(byCat).slice(0,3).map(([c,v])=>kpi(c,fmt(v))).join('');
   document.getElementById('asset-table').innerHTML=DB.assets.length?table(['Name','Category','Value','Currency','$ Equivalent','Notes',''],
     DB.assets.map(a=>[a.name,a.category,`<b>${fmt(a.value,a.cur)}</b>`,curSelect('assets',a.id,a.cur),eqBase(a.value,a.cur),a.notes||'—',
@@ -751,7 +776,7 @@ function recommendCard(ev){
 function renderLoans(){
   const out=DB.loans.reduce((a,l)=>a+toBase(l.outstanding,l.cur),0);
   const emi=DB.loans.reduce((a,l)=>a+toBase(l.emi,l.cur),0);
-  document.getElementById('loan-kpis').innerHTML=kpi('Total outstanding',fmt(out),'goldtxt',out?'≈ '+fmt(out)+' converted':'')+kpi('Monthly EMI',fmt(emi),'bluetxt',emi?'≈ '+fmt(emi)+' converted':'')+kpi('Active loans',DB.loans.length);
+  document.getElementById('loan-kpis').innerHTML=kpiUsd('Total outstanding',fmt(out),'goldtxt','',usdOf(out,DB.settings.baseCur))+kpiUsd('Monthly EMI',fmt(emi),'bluetxt','',usdOf(emi,DB.settings.baseCur))+kpi('Active loans',DB.loans.length);
   document.getElementById('loan-table').innerHTML=DB.loans.length?table(['Loan','Lender','Principal','Rate','EMI','Outstanding','Currency','$ Eq Outstanding','Started',''],
     DB.loans.map(l=>[l.name,l.lender,fmt(l.principal,l.cur),l.rate+'%',fmt(l.emi,l.cur),`<b class="goldtxt">${fmt(l.outstanding,l.cur)}</b>`,
     curSelect('loans',l.id,l.cur),eqBase(l.outstanding,l.cur),l.started,
