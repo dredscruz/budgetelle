@@ -98,7 +98,44 @@ main.content{flex:1;padding:28px 40px;margin:0 auto;max-width:1500px;width:100%}
 .card h3{font-size:15px;margin-bottom:14px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-@media(max-width:1000px){.grid2,.grid3{grid-template-columns:1fr}.login-brand{display:none}.login-panel{width:100%}nav.sidebar{display:none}}
+@media(max-width:1000px){.grid2,.grid3{grid-template-columns:1fr}}
+@media(max-width:860px){
+  /* login */
+  #login-screen{flex-direction:column}
+  .login-brand{padding:44px 28px 36px}
+  .brand-row{margin-bottom:28px}
+  .brand-row img{width:56px;height:56px;border-radius:14px}
+  .brand-name{font-size:30px}
+  .login-brand h1{font-size:36px}
+  .login-desc{font-size:15.5px;margin-bottom:30px}
+  .feat-list{gap:20px}
+  .feat .ic{width:42px;height:42px;font-size:17px}
+  .login-panel{width:100%;padding:28px 20px 40px}
+  .login-card{padding:36px 26px}
+  .login-card h2{font-size:32px}
+  .privacy-note{padding:0 6px;margin-top:20px}
+  /* app shell: sidebar becomes top drawer */
+  .layout{flex-direction:column}
+  nav.sidebar{display:flex;width:100%;overflow-x:auto;padding:10px;gap:6px;border-right:none;border-bottom:1px solid var(--border);-webkit-overflow-scrolling:touch}
+  .nav-sec{display:none}
+  .nav-item{white-space:nowrap;padding:9px 13px;font-size:13px;border-left:none;border-bottom:2px solid transparent}
+  .nav-item.active{border-left:none;border-bottom-color:var(--gold)}
+  main.content{padding:20px 16px}
+  .page-head{flex-direction:column;align-items:flex-start}
+  .page-head>div:last-child,.page-head>button{width:100%}
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  header.topbar{flex-wrap:wrap;gap:10px;padding:10px 14px}
+  .search-wrap{order:3;max-width:100%;width:100%;margin-left:0}
+  .cur-badge{display:none}
+  table{font-size:12.5px}
+  th,td{padding:9px 7px}
+}
+@media(max-width:480px){
+  .kpi-grid{grid-template-columns:1fr 1fr;gap:10px}
+  .kpi .val{font-size:19px}
+  .login-card h2{font-size:27px}
+  .login-brand h1{font-size:31px}
+}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th{text-align:left;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--border)}
 td{padding:12px;border-bottom:1px solid var(--border)}
@@ -220,11 +257,11 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
   <div class="nav-item" data-page="income">💰 Income</div>
   <div class="nav-item" data-page="expenses">🧾 Expenses</div>
   <div class="nav-item" data-page="budget">🎯 Budgets</div>
-  <div class="nav-item" data-page="recurring">🔁 Recurring</div>
+  <div class="nav-item" data-page="recurring">🔁 Subscriptions</div>
   <div class="nav-sec">Wealth</div>
   <div class="nav-item" data-page="networth">📈 Net Worth</div>
   <div class="nav-item" data-page="goals">🏁 Goals</div>
-  <div class="nav-item" data-page="assets">🏠 Assets &amp; Property</div>
+  <div class="nav-item" data-page="assets">🏠 What I Own</div>
   <div class="nav-item" data-page="insurance">🛡 Insurance</div>
   <div class="nav-item" data-page="documents">📄 Documents</div>
   <div class="nav-item" data-page="creditcards">💳 Credit Cards</div>
@@ -293,8 +330,8 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
 
 <!-- RECURRING -->
 <section class="page" id="page-recurring">
-  <div class="page-head"><div><h1>Subscriptions &amp; Recurring</h1><p class="sub">OTT, memberships and bills.</p></div>
-  <button class="btn btn-gold" onclick="openRecurring()">+ Add recurring</button></div>
+  <div class="page-head"><div><h1>Subscriptions</h1><p class="sub">Your fixed monthly commitments — post each charge to Expenses with one click.</p></div>
+  <button class="btn btn-gold" onclick="openRecurring()">+ Add subscription</button></div>
   <div class="kpi-grid" id="recur-kpis"></div>
   <div class="card"><div id="recurring-list"></div></div>
 </section>
@@ -317,8 +354,11 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
 
 <!-- ASSETS -->
 <section class="page" id="page-assets">
-  <div class="page-head"><div><h1>Assets &amp; Property</h1><p class="sub">Properties, vehicles, investments and more.</p></div>
-  <button class="btn btn-gold" onclick="openAsset()">+ Add asset</button></div>
+  <div class="page-head"><div><h1>What I Own</h1><p class="sub">Everything valuable — property, vehicles, investments and savings. Roll it up into Net Worth anytime.</p></div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <button class="btn btn-blue" onclick="rollupNetWorth()">Roll up into Net Worth</button>
+    <button class="btn btn-gold" onclick="openAsset()">+ Add item</button>
+  </div></div>
   <div class="kpi-grid" id="asset-kpis"></div>
   <div class="card"><div id="asset-table"></div></div>
 </section>

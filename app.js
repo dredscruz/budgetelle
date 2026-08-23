@@ -292,6 +292,7 @@ function sumInBase(list,type){ return list.filter(e=>e.type===type).reduce((a,e)
 function lastNMonths(n){ const arr=[]; const d=new Date(); for(let i=n-1;i>=0;i--){arr.push(new Date(d.getFullYear(),d.getMonth()-i,1));} return arr; }
 
 function refreshAll(){
+  autoPostDue();
   renderDashboard(); renderIncome(); renderExpenses(); renderBudget(); renderRecurring();
   renderNetWorth(); renderGoals(); renderAssets(); renderInsurance(); renderDocuments();
   renderCards(); renderLoans(); renderProfile(); renderSettings(); renderSecurity();
@@ -304,10 +305,12 @@ function renderDashboard(){
   const rate=inc>0?((net/inc)*100):0;
   const nw=DB.snapshots.length?DB.snapshots[DB.snapshots.length-1]:null;
   const nwv=nw?(nw.assets-nw.liabilities):null;
+  const subTotal=tm.filter(e=>e.type==='expense'&&e.subId).reduce((a,e)=>a+toBase(e.amount,e.cur),0);
   document.getElementById('dash-kpis').innerHTML=[
     kpi('Income',fmt(inc),'pos'),kpi('Expenses',fmt(exp),'neg'),
     kpi('Net savings',fmt(net),net>=0?'pos':'neg'),
     kpi('Savings rate',rate.toFixed(1)+'%','', rate>=20?'On track':undefined),
+    kpi('Subscriptions',exp>0?Math.round(subTotal/exp*100)+'% of expenses':fmt(subTotal),'bluetxt', subTotal>0?fmt(subTotal)+' this month':undefined),
     kpi('Net worth',nwv!=null?fmt(nwv):'—','goldtxt', nw?('Assets '+fmt(nw.assets)+' − Liab '+fmt(nw.liabilities)):undefined)
   ].join('');
   // cashflow bars
@@ -441,11 +444,35 @@ function monthlyEquiv(r){const a=r.amount;return r.freq==='yearly'?a/12:r.freq==
 function renderRecurring(){
   const act=DB.recurring.filter(r=>r.status==='Active');
   document.getElementById('recur-kpis').innerHTML=
-    kpi('Monthly equivalent',fmt(act.reduce((a,r)=>a+monthlyEquiv(r),0)))+kpi('Active items',act.length);
+    kpi('Monthly equivalent',fmt(act.reduce((a,r)=>a+monthlyEquiv(r),0)))+kpi('Active items',act.length)
+    +kpi('Posted this month',postedCount());
+  const sorted=[...DB.recurring].sort((a,b)=>(a.next||'').localeCompare(b.next||''));
   document.getElementById('recurring-list').innerHTML=DB.recurring.length?table(['Name','Category','Amount','Frequency','Next','Status',''],
-    DB.recurring.map(r=>[r.name,r.category,fmt(r.amount),r.freq,r.next,`<span class="pill ${r.status.toLowerCase()}">${r.status}</span>`,
-    `<span class="tbl-actions"><button onclick="editRecurring('${r.id}')">Edit</button><button class="del" onclick="delItem('recurring','${r.id}')">Delete</button></span>`]))
-    :'<div class="empty">No recurring items.</div>';
+    sorted.map(r=>{
+      const due=r.status==='Active'&&r.next&&r.next<=isoOf(new Date());
+      return [r.name,r.category,fmt(r.amount),r.freq,r.next,
+      `<span class="pill ${r.status.toLowerCase()}">${r.status}</span>${due?' <span class="pill duesoon">due</span>':''}`,
+      `${due?`<button class="link-btn" onclick="postRecurring('${r.id}')">Post to Expenses</button> `:''}<span class="tbl-actions"><button onclick="editRecurring('${r.id}')">Edit</button><button class="del" onclick="delItem('recurring','${r.id}')">Delete</button></span>`]}))
+    :'<div class="empty">No subscriptions yet.</div>';
+}
+function postedCount(){
+  const ym=ymOf(new Date());
+  return DB.entries.filter(e=>e.type==='expense'&&e.subId&&e.date.startsWith(ym)).length;
+}
+function postRecurring(id){
+  const r=DB.recurring.find(x=>x.id===id); if(!r)return;
+  DB.entries.push({id:uid(),date:r.next,type:'expense',category:r.category,amount:r.amount,cur:DB.settings.baseCur,notes:r.name+' (subscription)',subId:r.id});
+  // advance the next-due date by one period
+  const d=new Date(r.next);
+  if(r.freq==='monthly')d.setMonth(d.getMonth()+1);
+  else if(r.freq==='quarterly')d.setMonth(d.getMonth()+3);
+  else d.setFullYear(d.getFullYear()+1);
+  r.next=isoOf(d);
+  persist();refreshAll();toast(`${r.name} posted to Expenses ✓ (next: ${r.next})`);
+}
+function autoPostDue(){
+  const today=isoOf(new Date());
+  DB.recurring.filter(r=>r.status==='Active'&&r.next&&r.next<=today).forEach(r=>postRecurring(r.id));
 }
 function openRecurring(){
   openModal(`<h3>Add recurring</h3><form onsubmit="saveRecurring(event)">
@@ -535,7 +562,17 @@ function renderAssets(){
   document.getElementById('asset-table').innerHTML=DB.assets.length?table(['Name','Category','Value','Notes',''],
     DB.assets.map(a=>[a.name,a.category,`<b>${fmt(a.value)}</b>`,a.notes||'—',
     `<span class="tbl-actions"><button onclick="editAssetSimple('${a.id}')">Edit</button><button class="del" onclick="delItem('assets','${a.id}')">Delete</button></span>`]))
-    :'<div class="empty">No assets recorded.</div>';
+    :'<div class="empty">Nothing recorded yet — add what you own above.</div>';
+}
+function rollupNetWorth(){
+  const assets=DB.assets.reduce((s,a)=>s+a.value,0);
+  const liab=DB.loans.reduce((s,l)=>s+l.outstanding,0);
+  if(!assets&&!liab)return toast('Add items in What I Own and loans first.');
+  const ym=ymOf(new Date());
+  DB.snapshots=DB.snapshots.filter(s=>s.month!==ym);
+  DB.snapshots.push({id:uid(),month:ym,assets,liabilities:liab,notes:'Rolled up from What I Own'});
+  DB.snapshots.sort((a,b)=>a.month.localeCompare(b.month));
+  persist();refreshAll();toast(`Net Worth snapshot for ${ym} saved ✓`);
 }
 function openAsset(){openModal(`<h3>Add asset</h3><form onsubmit="saveAsset(event)">
   ${f('Name','<input id="a-name" required>')}
