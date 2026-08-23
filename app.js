@@ -467,11 +467,10 @@ function renderBudget(){
   document.getElementById('budget-month-lbl').textContent=new Date().toLocaleString('en',{month:'long',year:'numeric'});
   const bs=DB.budgets.filter(b=>b.month===ym);
   const tm=thisMonthEntries().filter(e=>e.type==='expense');
-  const spentBy={};tm.forEach(e=>spentBy[e.category]=(spentBy[e.category]||0)+toBase(e.amount,e.cur));
-  const totB=bs.reduce((a,b)=>a+b.limit,0);
+  const spentBy={};tm.forEach(e=>spentBy[e.category]=(spentBy[e.category]||0)+toBase(e.amount,e.cur));  const totB=bs.reduce((a,b)=>a+toBase(b.limit,b.cur),0);
   const totS=bs.reduce((a,b)=>a+(spentBy[b.category]||0),0);
   document.getElementById('budget-kpis').innerHTML=
-    kpi('Total budgeted',fmt(totB))+kpi('Spent (tracked cats)',fmt(totS),totS>totB?'neg':'pos')+kpi('Remaining',fmt(totB-totS),totB-totS>=0?'pos':'neg');
+    kpi('Total budgeted',fmt(totB),'',totB?'≈ '+fmt(totB)+' total':'')+kpi('Spent (tracked cats)',fmt(totS),totS>totB?'neg':'pos')+kpi('Remaining',fmt(totB-totS),totB-totS>=0?'pos':'neg');
   document.getElementById('budget-list').innerHTML=bs.length?bs.map(b=>{
     const sp=spentBy[b.category]||0,pc=Math.min(100,sp/b.limit*100),over=sp>b.limit;
     return `<div style="margin-bottom:18px"><div class="bar-row"><b>${b.category}</b><span>${fmt(sp)} of ${fmt(b.limit)} ${over?'<span class="pill expense">over</span>':''}</span></div>
@@ -482,10 +481,10 @@ function renderBudget(){
 function openBudget(){
   openModal(`<h3>Add budget</h3><form onsubmit="saveBudget(event)">
     ${f('Category',`<select id="b-cat">${catOptions(CATS_EXP)}</select>`)}
-    ${f('Monthly limit','<input type="number" step="0.01" id="b-limit" required>')}
+    <div class="grid2">${f('Monthly limit','<input type="number" step="0.01" id="b-limit" required>')}${f('Currency','<select id="b-cur">'+curOptions()+'</select>')}</div>
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);
 }
-function saveBudget(e){e.preventDefault();DB.budgets.push({id:uid(),month:ymOf(new Date()),category:v('b-cat'),limit:+v('b-limit')});persist();closeModal();refreshAll();toast('Budget added ✓');}
+function saveBudget(e){e.preventDefault();DB.budgets.push({id:uid(),month:ymOf(new Date()),category:v('b-cat'),limit:+v('b-limit'),cur:v('b-cur')});persist();closeModal();refreshAll();toast('Budget added ✓');}
 function editBudget(id){const b=DB.budgets.find(x=>x.id===id);
   openModal(`<h3>Edit budget</h3><form onsubmit="updBudget(event,'${id}')">
   ${f('Limit',`<input type="number" step="0.01" id="b-limit" value="${b.limit}" required>`)}
@@ -497,7 +496,7 @@ function monthlyEquiv(r){const a=r.amount;return r.freq==='yearly'?a/12:r.freq==
 function renderRecurring(){
   const act=DB.recurring.filter(r=>r.status==='Active');
   document.getElementById('recur-kpis').innerHTML=
-    kpi('Monthly equivalent',fmt(act.reduce((a,r)=>a+monthlyEquiv(r),0)))+kpi('Active items',act.length)
+    kpi('Monthly equivalent',fmt(act.reduce((a,r)=>a+toBase(monthlyEquiv(r),r.cur),0)))+kpi('Active items',act.length)
     +kpi('Posted this month',postedCount());
   const sorted=[...DB.recurring].sort((a,b)=>(a.next||'').localeCompare(b.next||''));
   document.getElementById('recurring-list').innerHTML=DB.recurring.length?table(['Name','Category','Amount','Frequency','Next','Status',''],
@@ -531,10 +530,11 @@ function openRecurring(){
   openModal(`<h3>Add recurring</h3><form onsubmit="saveRecurring(event)">
     ${f('Name','<input id="r-name" required>')}
     <div class="grid2">${f('Category',`<select id="r-cat">${catOptions(CATS_EXP)}</select>`)}${f('Amount','<input type="number" step="0.01" id="r-amt" required>')}</div>
-    <div class="grid2">${f('Frequency',`<select id="r-freq"><option>monthly</option><option>quarterly</option><option>yearly</option></select>`)}${f('Next due','<input type="date" id="r-next" required>')}</div>
+    <div class="grid2">${f('Currency','<select id="r-cur">'+curOptions()+'</select>')}${f('Frequency',`<select id="r-freq"><option>monthly</option><option>quarterly</option><option>yearly</option></select>`)}</div>
+    ${f('Next due','<input type="date" id="r-next" required>')}
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);
 }
-function saveRecurring(e){e.preventDefault();DB.recurring.push({id:uid(),name:v('r-name'),category:v('r-cat'),amount:+v('r-amt'),freq:v('r-freq'),next:v('r-next'),status:'Active'});persist();closeModal();refreshAll();toast('Added ✓');}
+function saveRecurring(e){e.preventDefault();DB.recurring.push({id:uid(),name:v('r-name'),category:v('r-cat'),amount:+v('r-amt'),cur:v('r-cur'),freq:v('r-freq'),next:v('r-next'),status:'Active'});persist();closeModal();refreshAll();toast('Added ✓');}
 function editRecurring(id){const r=DB.recurring.find(x=>x.id===id);
   openModal(`<h3>Edit recurring</h3><form onsubmit="updRecurring(event,'${id}')">
   <div class="grid2">${f('Amount',`<input type="number" step="0.01" id="r-amt" value="${r.amount}" required>`)}${f('Status',`<select id="r-st"><option ${r.status==='Active'?'selected':''}>Active</option><option ${r.status==='Cancelled'?'selected':''}>Cancelled</option></select>`)}</div>
@@ -608,12 +608,12 @@ function updGoal(e,id){e.preventDefault();const g=DB.goals.find(x=>x.id===id);g.
 
 /* ---------- assets ---------- */
 function renderAssets(){
-  const byCat={};DB.assets.forEach(a=>byCat[a.category]=(byCat[a.category]||0)+a.value);
+  const byCat={};DB.assets.forEach(a=>byCat[a.category]=(byCat[a.category]||0)+toBase(a.value,a.cur));
   const tot=Object.values(byCat).reduce((a,b)=>a+b,0);
-  document.getElementById('asset-kpis').innerHTML=kpi('Total value',fmt(tot),'goldtxt')
+  document.getElementById('asset-kpis').innerHTML=kpi('Total value',fmt(tot),'goldtxt',tot?'≈ '+fmt(tot)+' converted':'')
     +Object.entries(byCat).slice(0,3).map(([c,v])=>kpi(c,fmt(v))).join('');
   document.getElementById('asset-table').innerHTML=DB.assets.length?table(['Name','Category','Value','Notes',''],
-    DB.assets.map(a=>[a.name,a.category,`<b>${fmt(a.value)}</b>`,a.notes||'—',
+    DB.assets.map(a=>[a.name,a.category,`<b>${fmt(a.value,a.cur)}</b>`,a.notes||'—',
     `<span class="tbl-actions"><button onclick="editAssetSimple('${a.id}')">Edit</button><button class="del" onclick="delItem('assets','${a.id}')">Delete</button></span>`]))
     :'<div class="empty">Nothing recorded yet — add what you own above.</div>';
 }
@@ -630,9 +630,9 @@ function rollupNetWorth(){
 function openAsset(){openModal(`<h3>Add asset</h3><form onsubmit="saveAsset(event)">
   ${f('Name','<input id="a-name" required>')}
   <div class="grid2">${f('Category',`<select id="a-cat"><option>Property</option><option>Vehicle</option><option>Investment</option><option>Bank</option><option>Gold</option><option>Other</option></select>`)}${f('Value','<input type="number" step="0.01" id="a-val" required>')}</div>
-  ${f('Notes','<input id="a-notes">')}
+  <div class="grid2">${f('Currency','<select id="a-cur">'+curOptions()+'</select>')}${f('Notes','<input id="a-notes">')}</div>
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);}
-function saveAsset(e){e.preventDefault();DB.assets.push({id:uid(),name:v('a-name'),category:v('a-cat'),value:+v('a-val'),notes:v('a-notes')});persist();closeModal();refreshAll();toast('Asset added ✓');}
+function saveAsset(e){e.preventDefault();DB.assets.push({id:uid(),name:v('a-name'),category:v('a-cat'),value:+v('a-val'),cur:v('a-cur'),notes:v('a-notes')});persist();closeModal();refreshAll();toast('Asset added ✓');}
 function editAssetSimple(id){const a=DB.assets.find(x=>x.id===id);
   openModal(`<h3>Edit asset</h3><form onsubmit="updAsset(event,'${id}')">
   ${f('Value',`<input type="number" step="0.01" id="a-val" value="${a.value}" required>`)}${f('Notes',`<input id="a-notes" value="${escAttr(a.notes||'')}">`)}
@@ -644,16 +644,16 @@ function escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 function statusFor(due){const days=Math.ceil((new Date(due)-new Date())/86400000);return days<0?['Overdue','expense']:days<=(DB.settings.leadDays)?['Due soon','duesoon']:['Current','active'];}
 function renderInsurance(){
   document.getElementById('ins-table').innerHTML=DB.insurance.length?table(['Policy','Type','Premium','Frequency','Due','Status',''],
-    DB.insurance.map(i=>{const st=statusFor(i.due);return [i.policy,i.type,fmt(i.premium),i.frequency,i.due,`<span class="pill ${st[1]}">${st[0]}</span>`,
+    DB.insurance.map(i=>{const st=statusFor(i.due);return [i.policy,i.type,fmt(i.premium,i.cur),i.frequency,i.due,`<span class="pill ${st[1]}">${st[0]}</span>`,
     `<span class="tbl-actions"><button onclick="editPolicy('${i.id}')">Edit</button><button class="del" onclick="delItem('insurance','${i.id}')">Delete</button></span>`]}))
     :'<div class="empty">No policies.</div>';
 }
 function openPolicy(){openModal(`<h3>Add policy</h3><form onsubmit="savePolicy(event)">
   <div class="grid2">${f('Policy name','<input id="i-policy" required>')}${f('Type',`<select id="i-type"><option>Motor</option><option>Health</option><option>Home</option><option>Life</option><option>Travel</option><option>Other</option></select>`)}</div>
-  <div class="grid2">${f('Premium','<input type="number" step="0.01" id="i-prem" required>')}${f('Frequency',`<select id="i-freq"><option>yearly</option><option>quarterly</option><option>monthly</option></select>`)}</div>
-  ${f('Due date','<input type="date" id="i-due" required>')}
+  <div class="grid2">${f('Premium','<input type="number" step="0.01" id="i-prem" required>')}${f('Currency','<select id="i-cur">'+curOptions()+'</select>')}</div>
+  <div class="grid2">${f('Frequency',`<select id="i-freq"><option>yearly</option><option>quarterly</option><option>monthly</option></select>`)}${f('Due date','<input type="date" id="i-due" required>')}</div>
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);}
-function savePolicy(e){e.preventDefault();DB.insurance.push({id:uid(),policy:v('i-policy'),type:v('i-type'),premium:+v('i-prem'),frequency:v('i-freq'),due:v('i-due')});persist();closeModal();refreshAll();toast('Policy added ✓');}
+function savePolicy(e){e.preventDefault();DB.insurance.push({id:uid(),policy:v('i-policy'),type:v('i-type'),premium:+v('i-prem'),cur:v('i-cur'),frequency:v('i-freq'),due:v('i-due')});persist();closeModal();refreshAll();toast('Policy added ✓');}
 function editPolicy(id){const p=DB.insurance.find(x=>x.id===id);
   openModal(`<h3>Edit policy</h3><form onsubmit="updPolicy(event,'${id}')">
   <div class="grid2">${f('Premium',`<input type="number" step="0.01" id="i-prem" value="${p.premium}" required>`)}${f('Due date',`<input type="date" id="i-due" value="${p.due}" required>`)}</div>
@@ -715,20 +715,21 @@ function recommendCard(ev){
 
 /* ---------- loans ---------- */
 function renderLoans(){
-  const out=DB.loans.reduce((a,l)=>a+l.outstanding,0);
-  const emi=DB.loans.reduce((a,l)=>a+l.emi,0);
-  document.getElementById('loan-kpis').innerHTML=kpi('Total outstanding',fmt(out),'goldtxt')+kpi('Monthly EMI',fmt(emi),'bluetxt')+kpi('Active loans',DB.loans.length);
+  const out=DB.loans.reduce((a,l)=>a+toBase(l.outstanding,l.cur),0);
+  const emi=DB.loans.reduce((a,l)=>a+toBase(l.emi,l.cur),0);
+  document.getElementById('loan-kpis').innerHTML=kpi('Total outstanding',fmt(out),'goldtxt',out?'≈ '+fmt(out)+' converted':'')+kpi('Monthly EMI',fmt(emi),'bluetxt',emi?'≈ '+fmt(emi)+' converted':'')+kpi('Active loans',DB.loans.length);
   document.getElementById('loan-table').innerHTML=DB.loans.length?table(['Loan','Lender','Principal','Rate','EMI','Outstanding','Started',''],
-    DB.loans.map(l=>[l.name,l.lender,fmt(l.principal),l.rate+'%',fmt(l.emi),`<b class="goldtxt">${fmt(l.outstanding)}</b>`,l.started,
+    DB.loans.map(l=>[l.name,l.lender,fmt(l.principal,l.cur),l.rate+'%',fmt(l.emi,l.cur),`<b class="goldtxt">${fmt(l.outstanding,l.cur)}</b>`,l.started,
     `<span class="tbl-actions"><button onclick="editLoan('${l.id}')">Edit</button><button class="del" onclick="delItem('loans','${l.id}')">Delete</button></span>`]))
     :'<div class="empty">Debt-free! No loans recorded. 🎉</div>';
 }
 function openLoan(){openModal(`<h3>Add loan</h3><form onsubmit="saveLoan(event)">
   <div class="grid2">${f('Loan name','<input id="l-name" required>')}${f('Lender','<input id="l-lender" required>')}</div>
   <div class="grid3">${f('Principal','<input type="number" step="0.01" id="l-prin" required>')}${f('Rate %','<input type="number" step="0.01" id="l-rate" required>')}${f('Monthly EMI','<input type="number" step="0.01" id="l-emi" required>')}</div>
-  <div class="grid2">${f('Outstanding','<input type="number" step="0.01" id="l-out" required>')}${f('Started','<input type="date" id="l-start" required>')}</div>
+  <div class="grid2">${f('Outstanding','<input type="number" step="0.01" id="l-out" required>')}${f('Currency','<select id="l-cur">'+curOptions()+'</select>')}</div>
+  ${f('Started','<input type="date" id="l-start" required>')}
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);}
-function saveLoan(e){e.preventDefault();DB.loans.push({id:uid(),name:v('l-name'),lender:v('l-lender'),principal:+v('l-prin'),rate:+v('l-rate'),emi:+v('l-emi'),outstanding:+v('l-out'),started:v('l-start')});persist();closeModal();refreshAll();toast('Loan added ✓');}
+function saveLoan(e){e.preventDefault();DB.loans.push({id:uid(),name:v('l-name'),lender:v('l-lender'),principal:+v('l-prin'),rate:+v('l-rate'),emi:+v('l-emi'),outstanding:+v('l-out'),cur:v('l-cur'),started:v('l-start')});persist();closeModal();refreshAll();toast('Loan added ✓');}
 function editLoan(id){const l=DB.loans.find(x=>x.id===id);
   openModal(`<h3>Edit loan</h3><form onsubmit="updLoan(event,'${id}')">
   ${f('Outstanding balance',`<input type="number" step="0.01" id="l-out" value="${l.outstanding}" required>`)}
