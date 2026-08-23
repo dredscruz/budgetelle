@@ -456,6 +456,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   <div class="page-head"><div><h1>Family</h1><p class="sub">Track money per person, keep anything private, and see the whole household consolidated.</p></div>
   <button class="btn btn-gold" onclick="openMember()">+ Add member</button></div>
   <div class="card"><h3>Privacy controls</h3>
+    <div id="active-member-note"></div>
     <div class="set-row"><div><div class="t">Family view</div><div class="d">When on, entries marked Private are hidden everywhere — a shared-screen-safe view of the household. Turn it off to see everything.</div></div>
       <label class="switch"><input type="checkbox" id="fam-view-sw" onchange="toggleFamilyView(this.checked)"><span class="slider"></span></label></div>
     <div class="set-row"><div><div class="t">Per-member masking</div><div class="d">Use the switch beside each member below to hide their amounts while keeping names visible.</div></div></div>
@@ -576,6 +577,27 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       <div class="field"><label>Rate to base (1 unit = ? base)</label><input id="cur-rate" type="number" step="any" required placeholder="e.g. 3.67"></div>
       <button class="btn btn-blue">Add / update</button>
     </form>
+  </div>
+  <div class="card"><h3>Categories</h3>
+    <p class="sub" style="margin-bottom:14px">Add, rename or remove the categories offered in Income and Expenses. Built-in ones can be removed but come back if you clear the field list entirely.</p>
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <div style="flex:1;min-width:280px">
+        <b style="font-size:13px;color:var(--muted);letter-spacing:1px">INCOME</b>
+        <div id="cats-inc" style="margin-top:10px"></div>
+        <form class="inline mt" onsubmit="addCat('inc',event)">
+          <div class="field"><input id="newcat-inc" placeholder="New income category" required></div>
+          <button class="btn btn-blue">Add</button>
+        </form>
+      </div>
+      <div style="flex:1;min-width:280px">
+        <b style="font-size:13px;color:var(--muted);letter-spacing:1px">EXPENSES</b>
+        <div id="cats-exp" style="margin-top:10px"></div>
+        <form class="inline mt" onsubmit="addCat('exp',event)">
+          <div class="field"><input id="newcat-exp" placeholder="New expense category" required></div>
+          <button class="btn btn-blue">Add</button>
+        </form>
+      </div>
+    </div>
   </div>
   <div class="card"><h3>Household</h3>
     <form class="inline" onsubmit="return false">

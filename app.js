@@ -248,15 +248,17 @@ function curSelect(coll,id,cur){ /* inline currency switcher */
 function setCur(coll,id,val){
   const item=(DB[coll]||[]).find(x=>x.id===id); if(!item)return;
   const old=item.cur||DB.settings.baseCur;
+  if(old===val)return;
+  // always re-express the figure in the new currency so its $ equivalent stays correct
+  item.amount=+(convAmt(item.amount,old,val)).toFixed(2);
   item.cur=val;
-  // keep stored figure numerically identical unless a rate exists both ways
-  if(DB.settings.rates[val]&&DB.settings.rates[old]) item.amount=+(toBase(item.amount,old)/DB.settings.rates[val]).toFixed(2);
-  persist();refreshAll();toast('Currency updated ✓');
+  persist();refreshAll();toast('Currency updated — value converted ✓');
 }
 
 /* ---------- app shell ---------- */
 function enterApp(){
   migrateDB();
+  applyInviteIfAny();
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   applyTheme(DB.settings.theme==='light');
@@ -295,7 +297,7 @@ function catOptions(list,sel){ return list.map(c=>`<option ${c===sel?'selected':
 
 /* ---------- generic entry forms (income/expense) ---------- */
 function openEntry(type){
-  const cats = type==='income'?CATS_INC:CATS_EXP;
+  const cats = type==='income'?incCats():expCats();
   openModal(`<h3>${type==='income'?'Add income':'Add expense'}</h3>
   <form onsubmit="saveEntry(event,'${type}')">
     ${f('Date','<input type="date" id="e-date" required value="'+isoOf(new Date())+'">')}
@@ -320,7 +322,7 @@ function saveEntry(e,type){
     cur:document.getElementById('e-cur').value,
     notes:document.getElementById('e-notes').value,
     recurring:recur,
-    memberId:v('e-member')||null,
+    memberId:(function(){const am=activeMember();if(am)return am.id;const sel=document.getElementById('e-member');return sel?sel.value||null:null;})(),
     private:v('e-priv')==='private'
   });
   persist(); closeModal(); refreshAll();
@@ -342,7 +344,7 @@ function refreshAll(){
 }
 
 function renderDashboard(){
-  const tm=thisMonthEntries();
+  const tm=myEntries();
   const incBase=sumInBase(tm,'income'), expBase=sumInBase(tm,'expense');
   const netBase=incBase-expBase;
   const rate=incBase>0?((netBase/incBase)*100):0;
@@ -427,25 +429,33 @@ function renderDonut(el,byCat,totalLabel){
 }
 
 /* ---------- income & expenses ---------- */
+function curLineOf(list,type){ /* small line of raw per-currency sums */
+  const rows=[...new Set(list.map(e=>e.cur||DB.settings.baseCur))].map(c=>{
+    const es=list.filter(e=>(e.cur||DB.settings.baseCur)===c&&e.type===type);
+    return {cur:c,sum:es.reduce((a,e)=>a+e.amount,0)};
+  }).filter(r=>r.sum>0);
+  return rows.map(r=>fmt(r.sum,r.cur)).join(' · ');
+}
 function renderIncome(){
-  const tm=thisMonthEntries().filter(e=>e.type==='income');
-  const disp=domCur(tm);
-  const total=tm.reduce((a,e)=>a+convAmt(e.amount,e.cur,disp),0);
-  document.getElementById('income-kpis').innerHTML=kpi('This month',fmt(total,disp),'pos')+kpi('Entries',tm.length)+kpi('Top source',topSrc(tm));
+  const tm=myEntries().filter(e=>e.type==='income'&&e.date.startsWith(ymOf(new Date())));
+  const total=sumInBase(tm,'income');
+  document.getElementById('income-kpis').innerHTML=kpi('This month',fmt(total),'pos',total?curLineOf(tm,'income'):undefined)
+    +kpi('Entries',tm.length)+kpi('Top source',topSrc(tm));
   document.getElementById('income-list').innerHTML=renderEntryTable(tm,'income');
 }
 function renderExpenses(){
-  const tm=thisMonthEntries().filter(e=>e.type==='expense');
-  const disp=domCur(tm);
-  const total=tm.reduce((a,e)=>a+convAmt(e.amount,e.cur,disp),0);
-  document.getElementById('expense-kpis').innerHTML=kpi('This month',fmt(total,disp),'neg')+kpi('Entries',tm.length)+kpi('Biggest',biggest(tm));
+  const tm=myEntries().filter(e=>e.type==='expense'&&e.date.startsWith(ymOf(new Date())));
+  const total=sumInBase(tm,'expense');
+  document.getElementById('expense-kpis').innerHTML=kpi('This month',fmt(total),'neg',total?curLineOf(tm,'expense'):undefined)
+    +kpi('Entries',tm.length)+kpi('Biggest',biggest(tm));
   document.getElementById('expense-list').innerHTML=renderEntryTable(tm,'expense');
 }
 function topSrc(l){const c={};l.forEach(e=>c[e.category]=(c[e.category]||0)+e.amount);const t=Object.entries(c).sort((a,b)=>b[1]-a[1])[0];return t?t[0]:'—';}
 function biggest(l){if(!l.length)return '—';const b=l.reduce((x,y)=>x.amount>y.amount?x:y);return fmt(b.amount,b.cur);}
 function renderEntryTable(list,type){
-  if(!list.length)return '<div class="empty">Nothing yet — add your first entry above.</div>';
-  const sorted=[...list].sort((a,b)=>b.date.localeCompare(a.date));
+  const visible=list.filter(e=>canTouchEntry(e));
+  if(!visible.length)return '<div class="empty">Nothing yet — add your first entry above.</div>';
+  const sorted=[...visible].sort((a,b)=>b.date.localeCompare(a.date));
   return table(['Date','Category','Amount','Currency','$ Equivalent','Notes',''],sorted.map(e=>[
     e.date, e.category,
     `<span class="${type==='income'?'pos':'neg'}">${type==='income'?'+':'−'}${fmt(e.amount,e.cur)}</span>`,
@@ -457,7 +467,7 @@ function renderEntryTable(list,type){
 }
 function editEntry(id){
   const e=DB.entries.find(x=>x.id===id); if(!e)return;
-  const cats=e.type==='income'?CATS_INC:CATS_EXP;
+  const cats=e.type==='income'?incCats():expCats();
   openModal(`<h3>Edit ${e.type}</h3><form onsubmit="updateEntry(event,'${id}')">
     ${f('Date',`<input type="date" id="e-date" value="${e.date}" required>`)}
     <div class="grid2">${f('Category',`<select id="e-cat">${catOptions(cats,e.category)}</select>`)}${f('Currency',`<select id="e-cur">${curOptions(e.cur)}</select>`)}</div>
@@ -469,12 +479,15 @@ function editEntry(id){
 function updateEntry(e,id){
   e.preventDefault();
   const x=DB.entries.find(x=>x.id===id);
+  if(!canTouchEntry(x))return toast('You can only edit your own entries.');
   x.date=v('e-date');x.category=v('e-cat');x.cur=v('e-cur');x.amount=+v('e-amt');x.notes=v('e-notes');
-  x.memberId=v('e-member')||null;x.private=v('e-priv')==='private';
+  if(canEditAll()){x.memberId=v('e-member')||null;}
+  x.private=v('e-priv')==='private';
   persist();closeModal();refreshAll();toast('Updated ✓');
 }
 function v(id){return document.getElementById(id).value;}
 function delItem(coll,id){
+  if(coll==='entries'){const e=DB.entries.find(x=>x.id===id);if(e&&!canTouchEntry(e))return toast('You can only delete your own entries.');}
   const labels={entries:'entry',budgets:'budget',recurring:'subscription',snapshots:'snapshot',goals:'goal',assets:'asset',insurance:'policy',documents:'document',cards:'card',loans:'loan',members:'member'};
   if(!confirm('Delete this '+(labels[coll]||'item')+'? This cannot be undone.'))return;
   DB[coll]=DB[coll].filter(x=>x.id!==id);
@@ -500,7 +513,7 @@ function renderBudget(){
 }
 function openBudget(){
   openModal(`<h3>Add budget</h3><form onsubmit="saveBudget(event)">
-    ${f('Category',`<select id="b-cat">${catOptions(CATS_EXP)}</select>`)}
+    ${f('Category',`<select id="b-cat">${catOptions(expCats())}</select>`)}
     <div class="grid2">${f('Monthly limit','<input type="number" step="0.01" id="b-limit" required>')}${f('Currency','<select id="b-cur">'+curOptions()+'</select>')}</div>
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);
 }
@@ -549,7 +562,7 @@ function autoPostDue(){
 function openRecurring(){
   openModal(`<h3>Add recurring</h3><form onsubmit="saveRecurring(event)">
     ${f('Name','<input id="r-name" required>')}
-    <div class="grid2">${f('Category',`<select id="r-cat">${catOptions(CATS_EXP)}</select>`)}${f('Amount','<input type="number" step="0.01" id="r-amt" required>')}</div>
+    <div class="grid2">${f('Category',`<select id="r-cat">${catOptions(expCats())}</select>`)}${f('Amount','<input type="number" step="0.01" id="r-amt" required>')}</div>
     <div class="grid2">${f('Currency','<select id="r-cur">'+curOptions()+'</select>')}${f('Frequency',`<select id="r-freq"><option>monthly</option><option>quarterly</option><option>yearly</option></select>`)}</div>
     ${f('Next due','<input type="date" id="r-next" required>')}
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);
@@ -711,7 +724,7 @@ function renderCards(){
 }
 function openCard(){openModal(`<h3>Add card</h3><form onsubmit="saveCard(event)">
   <div class="grid2">${f('Card name','<input id="c-name" required>')}${f('Bank','<input id="c-bank" required>')}</div>
-  ${f('Best rule — category',`<select id="c-cat">${catOptions(CATS_EXP.concat(['Travel']))}</select>`)}
+  ${f('Best rule — category',`<select id="c-cat">${catOptions(expCats().concat(['Travel']))}</select>`)}
   ${f('Cashback % for that category','<input type="number" step="0.1" id="c-pct" required placeholder="5">')}
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);}
 function saveCard(e){e.preventDefault();DB.cards.push({id:uid(),name:v('c-name'),bank:v('c-bank'),rules:[{cat:v('c-cat'),pct:+v('c-pct')}]});persist();closeModal();refreshAll();toast('Card added ✓');}
@@ -764,6 +777,40 @@ function migrateDB(){
   if(!DB.members)DB.members=[];
   if(!DB.scoreHistory)DB.scoreHistory=[];
   if(DB.settings.familyView===undefined)DB.settings.familyView=false;
+  if(DB.settings.catsInc===undefined)DB.settings.catsInc=[...CATS_INC];
+  if(DB.settings.catsExp===undefined)DB.settings.catsExp=[...CATS_EXP];
+}
+function incCats(){ return DB.settings.catsInc&&DB.settings.catsInc.length?DB.settings.catsInc:CATS_INC; }
+function expCats(){ return DB.settings.catsExp&&DB.settings.catsExp.length?DB.settings.catsExp:CATS_EXP; }
+function renderCats(){
+  const row=(name,kind)=>`<div class="set-row"><div class="t">${escAttr(name)}</div>
+    <span class="tbl-actions"><button onclick="renameCat('${kind}','${escAttr(name).replace(/'/g,"\\'")}')">Rename</button><button class="del" onclick="delCat('${kind}','${escAttr(name).replace(/'/g,"\\'")}')">Delete</button></span></div>`;
+  document.getElementById('cats-inc').innerHTML=incCats().map(c=>row(c,'inc')).join('')||'<div class="empty" style="padding:8px">None</div>';
+  document.getElementById('cats-exp').innerHTML=expCats().map(c=>row(c,'exp')).join('')||'<div class="empty" style="padding:8px">None</div>';
+}
+function addCat(kind,ev){
+  ev.preventDefault();
+  const input=document.getElementById(kind==='inc'?'newcat-inc':'newcat-exp');
+  const name=input.value.trim(); if(!name)return;
+  const list=kind==='inc'?DB.settings.catsInc:DB.settings.catsExp;
+  if(list.some(c=>c.toLowerCase()===name.toLowerCase()))return toast('That category already exists.');
+  list.push(name);persist();input.value='';renderSettings();refreshAll();toast('Category added ✓');
+}
+function renameCat(kind,name){
+  const nn=prompt('Rename "'+name+'" to:',name); if(!nn||nn.trim()===name)return;
+  const clean=nn.trim();
+  const list=kind==='inc'?DB.settings.catsInc:DB.settings.catsExp;
+  const i=list.indexOf(name); if(i<0)return;
+  // migrate existing entries to the new name
+  const field=kind==='inc'?'income':'expense';
+  DB.entries.forEach(e=>{if(e.type===field&&e.category===name)e.category=clean;});
+  list[i]=clean;persist();renderSettings();refreshAll();toast('Category renamed — entries updated ✓');
+}
+function delCat(kind,name){
+  if(!confirm('Delete category "'+name+'"? Existing entries keep the old label.'))return;
+  const list=kind==='inc'?DB.settings.catsInc:DB.settings.catsExp;
+  const i=list.indexOf(name); if(i<0)return;
+  list.splice(i,1);persist();renderSettings();refreshAll();toast('Category deleted ✓');
 }
 function visEntries(){ return DB.settings.familyView ? DB.entries.filter(e=>!e.private) : DB.entries; }
 function memberName(id){ const m=DB.members.find(x=>x.id===id); return m?m.name:''; }
@@ -783,10 +830,15 @@ function renderFamily(){
       canSeeAll(m.role)
         ?`<label class="switch" title="Hide amounts for this member"><input type="checkbox" ${m.masked?'checked':''} onchange="toggleMemberMask('${m.id}',this.checked)"><span class="slider"></span></label>`
         :'<span style="color:var(--muted);font-size:12px" title="Only Owner and Partner can have amounts hidden">n/a</span>',
-      `<span class="tbl-actions"><button onclick="editMember('${m.id}')">Edit</button><button class="del" onclick="delItem('members','${m.id}')">Delete</button></span>`
+      `<span class="tbl-actions"><button onclick="inviteMember('${m.id}')">Invite</button><button onclick="editMember('${m.id}')">Edit</button><button class="del" onclick="delItem('members','${m.id}')">Delete</button></span>`
     ]))
     :'<div class="empty">No family members yet.<br><button class="btn btn-gold mt" style="margin-top:14px" onclick="openMember()">+ Add your first member</button></div>';
   // privacy settings
+  const am=activeMember();
+  document.getElementById('active-member-note').innerHTML=am?
+    `<div class="set-row"><div><div class="t">Signed in as ${memberDot(am)} <b>${escAttr(am.name)}</b> (${escAttr(am.role)})</div>
+     <div class="d">You can add, view and edit your own entries. ${canSeeAll(am.role)?'As '+escAttr(am.role)+', you can also see everyone else\'s.':'You cannot see or change other members\' entries.'}</div></div>
+     <button class="btn btn-ghost" style="padding:7px 14px;font-size:13px" onclick="switchBackToOwner()">Switch to owner</button></div>`:'';
   document.getElementById('fam-view-sw').checked=!!DB.settings.familyView;
   // per-member breakdown (this month)
   const tm=thisMonthEntries();
@@ -831,6 +883,83 @@ function toggleMemberMask(id,val){
   m.masked=val;persist();refreshAll();toast(val?'Amounts hidden for '+m.name:'Amounts visible for '+m.name);
 }
 function toggleFamilyView(val){DB.settings.familyView=val;persist();refreshAll();toast(val?'Family view ON — private entries hidden':'Family view OFF — showing everything');}
+
+/* ---------- member invites ---------- */
+function makeInviteToken(id){
+  // token = vault email + member id + role + issue time, signed with a hash of the session key material
+  const m=DB.members.find(x=>x.id===id); if(!m)return '';
+  return btoa(JSON.stringify({v:1,email:SESSION.email,mid:id,role:m.role,t:Date.now()})).replace(/=+$/,'');
+}
+function inviteMember(id){
+  const m=DB.members.find(x=>x.id===id);if(!m)return;
+  const token=makeInviteToken(id);
+  const url=location.origin+location.pathname+'?invite='+encodeURIComponent(token);
+  openModal(`<h3>Invite ${escAttr(m.name)}</h3>
+  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:16px">Share this link with <b style="color:var(--text)">${escAttr(m.name)}</b>. Opening it on their device shows this household's dashboard in <b style="color:var(--text)">${canSeeAll(m.role)?'full view':'their-entries-only view'}</b> (role: ${escAttr(m.role)}), matching your access rules. Anyone with the link can view — don't post it publicly.</p>
+  <div class="field"><label>Invite link</label><input id="inv-url" readonly value="${escAttr(url)}"></div>
+  <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Close</button>
+  <button class="btn btn-blue" onclick="navigator.clipboard.writeText(document.getElementById('inv-url').value).then(()=>toast('Link copied ✓'))">Copy link</button></div>`);
+}
+function handleInvite(){
+  const p=new URLSearchParams(location.search);
+  const tok=p.get('invite'); if(!tok)return;
+  history.replaceState(null,'',location.pathname);
+  try{
+    const d=JSON.parse(atob(tok));
+    if(!d.v||!d.email||!d.mid)throw 0;
+    const users=getUsers();
+    if(!users[d.email]){
+      toast('Invite received — but the vault owner must sign in on this device once first to sync it.');
+      document.getElementById('login-email').value=d.email;
+      return;
+    }
+    // stash invite so after sign-in we apply the restricted view
+    sessionStorage.setItem('budgetelle.invite',tok);
+    toast('Invite for '+d.email+' detected — sign in to continue.');
+    document.getElementById('login-email').value=d.email;
+  }catch{toast('That invite link is invalid.');}
+}
+function applyInviteIfAny(){
+  const tok=sessionStorage.getItem('budgetelle.invite'); if(!tok)return false;
+  try{
+    const d=JSON.parse(atob(tok));
+    if(d.email!==SESSION.email){sessionStorage.removeItem('budgetelle.invite');return false;}
+    const m=DB.members.find(x=>x.id===d.mid);
+    if(!m)return false;
+    // remember who is using this device and their scope
+    DB.settings.activeMemberId=m.id;
+    DB.settings.familyView=!canSeeAll(m.role); // restricted members see only shared entries
+    persist();refreshAll();
+    logSecNow('Invite used by '+m.name+' ('+m.role+')');
+    toast('Welcome '+m.name+' — signed in as '+m.role+(canSeeAll(m.role)?' (full access)':' (your entries only)'));
+    return true;
+  }catch{return false;}
+}
+function activeMember(){
+  // the currently scoped family member, or null for the vault owner
+  if(!DB.settings.activeMemberId)return null;
+  return DB.members.find(x=>x.id===DB.settings.activeMemberId)||null;
+}
+function canEditAll(){ // Owner session (no active member) or Owner/Partner member
+  const am=activeMember();
+  return !am||canSeeAll(am.role);
+}
+function myEntries(){ /* entries visible to the current viewer */
+  const am=activeMember();
+  let list=visEntries();
+  if(am&&!canSeeAll(am.role)) list=list.filter(e=>e.memberId===am.id||!e.memberId);
+  return list;
+}
+function canTouchEntry(e){ /* edit/delete permission */
+  const am=activeMember();
+  if(!am||canSeeAll(am.role))return true;
+  return e.memberId===am.id;
+}
+function switchBackToOwner(){
+  delete DB.settings.activeMemberId;
+  DB.settings.familyView=false;
+  persist();refreshAll();toast('Switched back to owner view.');
+}
 function memberOptions(sel){
   let o='<option value="">— Whole household —</option>';
   DB.members.forEach(m=>o+=`<option value="${m.id}" ${sel===m.id?'selected':''}>${escAttr(m.name)}</option>`);
@@ -1111,16 +1240,27 @@ function renderSettings(){
   document.getElementById('hh-name').value=DB.settings.household;
   document.getElementById('remind-on').checked=DB.settings.remind;
   document.getElementById('lead-days').value=DB.settings.leadDays;
+  renderCats();
 }
 function saveBaseCur(){
   const prev=DB.settings.baseCur;
-  DB.settings.baseCur=v('base-cur');
-  if(prev!==DB.settings.baseCur){
-    // re-express existing manual rates relative to new base
-    DB.settings.rates={};
-    toast(`Default currency set to ${{USD:'$',EUR:'€',GBP:'£'}[DB.settings.baseCur]??''} ${DB.settings.baseCur}`);
-  }
+  const next=v('base-cur');
+  if(prev===next){persist();return;}
+  // convert every stored amount from the old base to the new one
+  let touched=0;
+  DB.entries.forEach(e=>{e.amount=+(convAmt(e.amount,e.cur||prev,next)).toFixed(2);e.cur=next;touched++;});
+  DB.budgets.forEach(b=>{b.limit=+convAmt(b.limit,b.cur||prev,next).toFixed(2);b.cur=next;});
+  DB.recurring.forEach(r=>{r.amount=+convAmt(r.amount,r.cur||prev,next).toFixed(2);r.cur=next;});
+  DB.insurance.forEach(i=>{i.premium=+convAmt(i.premium,i.cur||prev,next).toFixed(2);i.cur=next;});
+  DB.loans.forEach(l=>{['principal','emi','outstanding'].forEach(k=>l[k]=+convAmt(l[k],l.cur||prev,next).toFixed(2));l.cur=next;});
+  DB.assets.forEach(a=>{a.value=+convAmt(a.value,a.cur||prev,next).toFixed(2);a.cur=next;});
+  DB.goals.forEach(g=>{['target','saved','monthly'].forEach(k=>g[k]=+convAmt(g[k],prev,next).toFixed(2));});
+  DB.snapshots.forEach(s=>{s.assets=+convAmt(s.assets,prev,next).toFixed(2);s.liabilities=+convAmt(s.liabilities,prev,next).toFixed(2);});
+  DB.cards.forEach(c=>c.rules.forEach(r=>{/* rules are %, nothing to convert */}));
+  DB.settings.baseCur=next;
+  DB.settings.rates={}; // old manual rates were relative to the previous base
   persist();refreshAll();
+  toast(`Default currency set to ${CURRENCIES[next]?.s??''} ${next} — all amounts converted (${touched} entries) ✓`);
 }
 function addCurrency(ev){
   ev.preventDefault();
@@ -1309,6 +1449,7 @@ async function handleGoogleReturn(){
   }
 }
 handleGoogleReturn();
+handleInvite();
 
 /* ---------- Quick capture: natural language, dictation, receipt scan ---------- */
 const QC_KEYWORDS=[
@@ -1437,7 +1578,7 @@ async function scanReceipt(input){
   }
 }
 let QC_STAGED=[];
-const QC_CATS=CATS_EXP;
+const QC_CATS=expCats();
 function renderStaged(){
   const st=document.getElementById('qc-status');
   let box=document.getElementById('qc-staged');
