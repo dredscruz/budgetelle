@@ -329,31 +329,30 @@ function refreshAll(){
 
 function renderDashboard(){
   const tm=thisMonthEntries();
-  const disp=domCur(tm);
-  const inc=tm.reduce((a,e)=>a+convAmt(e.amount,e.cur,disp),0), exp=tm.reduce((a,e)=>a+convAmt(e.amount,e.cur,disp)*(e.type==='expense'?1:0),0);
   const incBase=sumInBase(tm,'income'), expBase=sumInBase(tm,'expense');
-  const net=inc-exp, netBase=incBase-expBase;
+  const netBase=incBase-expBase;
   const rate=incBase>0?((netBase/incBase)*100):0;
   const nw=DB.snapshots.length?DB.snapshots[DB.snapshots.length-1]:null;
   const nwv=nw?(nw.assets-nw.liabilities):null;
-  const subTotal=tm.filter(e=>e.type==='expense'&&e.subId).reduce((a,e)=>a+convAmt(e.amount,e.cur,disp),0);
-  // per-currency breakdown of this month's entries
+  const subTotal=tm.filter(e=>e.type==='expense'&&e.subId).reduce((a,e)=>a+toBase(e.amount,e.cur),0);
+  // per-currency raw sums for the small sub-lines
   const curRows=[...new Set(tm.map(e=>e.cur||DB.settings.baseCur))].map(c=>{
     const es=tm.filter(e=>(e.cur||DB.settings.baseCur)===c);
     return {cur:c,
       inc:es.filter(e=>e.type==='income').reduce((a,e)=>a+e.amount,0),
       exp:es.filter(e=>e.type==='expense').reduce((a,e)=>a+e.amount,0)};
   });
+  const curLine=type=>curRows.filter(r=>r[type]).map(r=>fmt(r[type],r.cur)).join(' · ');
   document.getElementById('dash-kpis').innerHTML=[
-    kpi('Income',fmt(inc,disp),'pos',disp!==DB.settings.baseCur?('≈ '+fmt(incBase)+' converted'):undefined),
-    kpi('Expenses',fmt(exp,disp),'neg',disp!==DB.settings.baseCur?('≈ '+fmt(expBase)+' converted'):undefined),
-    kpi('Net savings',fmt(net,disp),net>=0?'pos':'neg',disp!==DB.settings.baseCur?('≈ '+fmt(netBase)+' converted'):undefined),
+    kpi('Income',fmt(incBase),'pos',curLine('inc')),
+    kpi('Expenses',fmt(expBase),'neg',curLine('exp')),
+    kpi('Net savings',fmt(netBase),netBase>=0?'pos':'neg'),
     kpi('Savings rate',rate.toFixed(1)+'%','', rate>=20?'On track':undefined),
-    kpi('Subscriptions',exp>0?Math.round(subTotal/exp*100)+'% of expenses':fmt(subTotal,disp),'bluetxt', subTotal>0?fmt(subTotal,disp)+' this month':undefined),
-    kpi('Net worth',nwv!=null?fmt(nwv,DB.settings.baseCur):'—','goldtxt', nw?('Assets '+fmt(nw.assets)+' − Liab '+fmt(nw.liabilities)):undefined)
+    kpi('Subscriptions',expBase>0?Math.round(subTotal/expBase*100)+'% of expenses':fmt(subTotal),'bluetxt', subTotal>0?fmt(subTotal)+' this month':undefined),
+    kpi('Net worth',nwv!=null?fmt(nwv):'—','goldtxt', nw?('Assets '+fmt(nw.assets)+' − Liab '+fmt(nw.liabilities)):undefined)
   ].join('');
-  // currency breakdown table
-  document.getElementById('dash-currencies').innerHTML=curRows.length>1||disp!==DB.settings.baseCur?
+  // full currency breakdown table
+  document.getElementById('dash-currencies').innerHTML=curRows.length?
     '<h3>Currency breakdown — this month</h3>'+table(['Currency','Income','Expenses','Net'],
       curRows.map(r=>[r.cur,`<span class="pos">+${fmt(r.inc,r.cur)}</span>`,`<span class="neg">−${fmt(r.exp,r.cur)}</span>`,`<b>${fmt(r.inc-r.exp,r.cur)}</b>`]))
     :'';
