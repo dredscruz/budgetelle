@@ -214,17 +214,26 @@ function fmt(amount, cur){
   return sym + Number(amount||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 function toBase(amount, cur){
-  if(cur===DB.settings.baseCur || !cur) return amount;
+  if(!cur || cur===DB.settings.baseCur) return amount;
+  // 1) manual rate set in Settings wins
   const r = DB.settings.rates[cur];
-  return r ? amount*r : amount;
+  if(r) return amount*r;
+  // 2) fall back to built-in approximate rates (units per 1 USD)
+  const dFrom=DEFAULT_RATES[cur], dBase=DEFAULT_RATES[DB.settings.baseCur];
+  if(dFrom && dBase) return amount/dFrom*dBase;
+  return amount; // last resort: unchanged
 }
 function convAmt(amount, from, to){ /* convert any currency to any other, via base */
   if(from===to) return amount;
   const baseAmt = toBase(amount, from);
   if(to===DB.settings.baseCur) return baseAmt;
   const r = DB.settings.rates[to];
-  return r ? baseAmt/r : baseAmt;
+  if(r) return baseAmt/r;
+  const dB=DEFAULT_RATES[DB.settings.baseCur], dT=DEFAULT_RATES[to];
+  if(dB && dT) return baseAmt/dB*dT;
+  return baseAmt;
 }
+const DEFAULT_RATES={USD:1,EUR:0.92,GBP:0.79,AED:3.6725,PHP:58.2,INR:83.5,JPY:149,CAD:1.36,AUD:1.52,SGD:1.34,CHF:0.88,SAR:3.75};
 function domCur(list){ /* the currency most of these entries were entered in */
   if(!list.length) return DB.settings.baseCur;
   const c={}; list.forEach(e=>{ c[e.cur||DB.settings.baseCur]=(c[e.cur||DB.settings.baseCur]||0)+1; });
