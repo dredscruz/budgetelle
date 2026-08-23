@@ -766,6 +766,47 @@ async function doChangePass(){
   closeModal();logSecNow('Password changed');renderSecurity();toast('Password updated ✓');
 }
 
+/* ---------- Google sign-in ---------- */
+async function googleSignIn(){
+  try{
+    const cfg = await (await fetch('/api/auth/config')).json();
+    if(cfg.enabled){ window.location.href='/api/auth/google/start'; return; }
+    toast('Google sign-in is being set up — use email & password for now, or check back soon.');
+  }catch{ toast('Google sign-in is unavailable right now. Use email & password.'); }
+}
+// After returning from Google: open a cloud-backed session for that account
+async function handleGoogleReturn(){
+  const p=new URLSearchParams(location.search);
+  const auth=p.get('auth');
+  if(!auth)return;
+  history.replaceState(null,'',location.pathname);
+  if(auth==='google'){
+    const email=p.get('email'),name=p.get('name')||'';
+    // create the vault if this Google account has never signed in before
+    const users=getUsers();
+    if(!users[email]){
+      const salt=crypto.getRandomValues(new Uint8Array(16));
+      // random high-entropy local password; the real auth lives in the HttpOnly server session
+      const rp=crypto.getRandomValues(new Uint8Array(24)).reduce((s,b)=>s+b.toString(16).padStart(2,'0'),'');
+      users[email]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(email+':'+rp+':'+btoa(String.fromCharCode(...salt)))};
+      localStorage.setItem(LS_USERS,JSON.stringify(users));
+      localStorage.setItem('budgetelle.gpass.'+email,rp); // lets them also unlock locally
+    }
+    document.getElementById('login-email').value=email;
+    const pw=localStorage.getItem('budgetelle.gpass.'+email);
+    document.getElementById('login-pass').value=pw;
+    await openSession(email,pw);
+    if(name&&!DB.profile.name){DB.profile.name=name.split(' ')[0];persist();}
+    logSecNow('Signed in with Google');renderSecurity();
+    toast(`Welcome${name?', '+name.split(' ')[0]:''} — signed in with Google ✓`);
+  } else if(auth==='failed'){
+    toast('Google sign-in didn\'t complete. Please try again or use email & password.');
+  } else if(auth==='unconfigured'){
+    toast('Google sign-in is being set up — use email & password for now.');
+  }
+}
+handleGoogleReturn();
+
 /* ---------- ADVISOR (local rules engine — no AI server, privacy-first) ---------- */
 const chat=document.getElementById('chat');
 function pushMsg(txt,who){
