@@ -856,6 +856,112 @@ async function handleGoogleReturn(){
 }
 handleGoogleReturn();
 
+/* ---------- Quick capture: natural language, dictation, receipt scan ---------- */
+const QC_KEYWORDS=[
+ ['Groceries',['grocer','supermarket','carrefour','lulu','superstore','market','produce']],
+ ['Dining',['restaurant','dinner','lunch','breakfast','cafe','coffee','starbucks','mcdonald','kfc','pizza','talabat','deliveroo','food']],
+ ['Fuel',['fuel','petrol','gas station','enoc','adnoc','eppco','shell','diesel']],
+ ['Utilities',['electric','water bill','dewa','sewa','internet','wifi','utility','phone bill','etisalat','du ','mobile bill']],
+ ['Online',['amazon','noon','online','ebay','aliexpress','shein','namshi']],
+ ['Transport',['uber','careem','taxi','metro','bus','parking','salik','toll','transport','train']],
+ ['Health',['pharmacy','hospital','clinic','doctor','medicine','dentist','health']],
+ ['Education',['school','tuition','course','university','book store','training']],
+ ['Rent',['rent','mortgage payment']],
+ ['Entertainment',['netflix','spotify','cinema','movie','game','concert','entertainment']],
+];
+const QC_INC_KEYWORDS=[
+ ['Salary',['salary','paycheck','pay roll','wage','salaried']],
+ ['Freelance',['freelance','gig','consult','client payment','project']],
+ ['Bonus',['bonus','tip','commission']],
+ ['Investment',['dividend','interest','investment return','stock sale','profit']],
+ ['Rental',['rent received','tenant','rental income']],
+ ['Gift',['gift','present money']],
+ ['Refund',['refund','reimburs','cashback received','returned money']],
+];
+function qcParse(text,type){
+  const t=' '+text.toLowerCase()+' ';
+  // amount: number, optional currency symbol/k
+  let amount=0;
+  const am=text.match(/(?:[$€£₱]|aed|usd|eur|gbp|php)?\s?([\d,]+(?:\.\d{1,2})?)\s*(k\b)?/i);
+  if(am){amount=parseFloat(am[1].replace(/,/g,''));if(/k\b/i.test(am[0]))amount*=1000;}
+  if(!amount)return null;
+  // date
+  let date=isoOf(new Date());
+  const today=new Date();
+  if(/\byesterday\b/.test(t)){date=isoOf(new Date(today-86400000));}
+  else if(/\b(last night|this morning|earlier today|today)\b/.test(t)){date=isoOf(today);}
+  else{const md=t.match(/\b(\d{1,2})\/(\d{1,2})\b/);if(md){date=isoOf(new Date(today.getFullYear(),+md[1]-1,+md[2]));}}
+  // notes = text minus amount/date words
+  let notes=text.replace(/(?:[$€£₱]|aed|usd|eur|gbp)?\s?[\d,]+(?:\.\d{1,2})?\s*k?\b/i,'')
+    .replace(/\b(paid|spent|bought|received|got|for|on|at|in|yesterday|today|this morning|last night|earlier)\b/gi,' ')
+    .replace(/\s+/g,' ').trim();
+  // category by keywords
+  const kw=type==='income'?QC_INC_KEYWORDS:QC_KEYWORDS;
+  let cat=null,best=0;
+  for(const[c,words]of kw){let hits=0;words.forEach(w=>{if(t.includes(w))hits++;});if(hits>best){best=hits;cat=c;}}
+  if(!cat)cat=type==='income'?'Other':(notes?(notes.split(' ')[0][0].toUpperCase()+notes.split(' ')[0].slice(1)):'Other');
+  return {type,date,category:CATS_EXP.includes(cat)||CATS_INC.includes(cat)?cat:(type==='income'?'Other':'Other'),amount,cur:DB.settings.baseCur,notes:notes||type};
+}
+function quickCapture(ev,type){
+  ev.preventDefault();
+  type=type||'expense';
+  const inp=document.getElementById(type==='income'?'qci-input':'qc-input');
+  const st=document.getElementById(type==='income'?'qci-status':'qc-status');
+  const parsed=qcParse(inp.value,type);
+  if(!parsed){st.textContent='Could not find an amount — try including it, e.g. "45 groceries".';return;}
+  DB.entries.push({id:uid(),...parsed});
+  persist();inp.value='';
+  st.innerHTML=`<span class="pos">✓ ${fmt(parsed.amount)} → <b>${parsed.category}</b> (${parsed.date})</span>`;
+  refreshAll();
+}
+/* dictation — parallel to typing */
+let qcRecog=null,qcTarget=null;
+function qcDictate(target){
+  qcTarget=target||'qc-input';
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR)return toast('Dictation needs Chrome or Edge (or use the keyboard mic on mobile).');
+  if(qcRecog&&qcRecog.listening){qcRecog.stop();return;}
+  qcRecog=new SR();qcRecog.lang=navigator.language||'en-US';qcRecog.interimResults=false;qcRecog.continuous=false;
+  qcRecog.onstart=()=>{qcRecog.listening=true;document.getElementById('qc-mic')?.classList.add('btn-blue');toast('Listening…');};
+  qcRecog.onend=()=>{qcRecog.listening=false;document.getElementById('qc-mic')?.classList.remove('btn-blue');};
+  qcRecog.onerror=e=>{toast(e.error==='not-allowed'?'Microphone permission denied.':'Dictation error — try again.');};
+  qcRecog.onresult=ev=>{
+    const said=ev.results[0][0].transcript;
+    const el=document.getElementById(qcTarget);
+    if(el)el.value=(el.value?el.value+' ':'')+said;
+  };
+  qcRecog.start();
+}
+/* receipt photo — on-device OCR via Tesseract.js, then auto-post */
+async function scanReceipt(input){
+  const file=input.files[0];if(!file)return;
+  const st=document.getElementById('qc-status');
+  st.textContent='Reading receipt…';
+  try{
+    if(!window.Tesseract){await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';s.onload=res;s.onerror=rej;document.head.appendChild(s);});}
+    const imgURL=URL.createObjectURL(file);
+    const {data}=await window.Tesseract.recognize(imgURL,'eng');
+    URL.revokeObjectURL(imgURL);
+    // total heuristics: prefer lines with TOTAL/AMOUNT DUE/GRAND TOTAL; fall back to largest currency-looking number
+    const lines=data.text.split('\n').map(l=>l.trim()).filter(Boolean);
+    let amount=0;
+    for(const l of lines){if(/total|amount due|grand/i.test(l)&&!/subtotal|change/i.test(l)){const m=l.match(/([\d,]+\.\d{2})/);if(m)amount=Math.max(amount,parseFloat(m[1].replace(/,/g,'')));}}
+    if(!amount){for(const l of lines){const m=l.match(/(?:AED|USD|\$|€|£)?\s?(\d{1,4}(?:[,.]\d{3})*\.\d{2})/);if(m){const v=parseFloat(m[1].replace(/,/g,''));if(v>amount)amount=v;}}}
+    if(!amount){st.textContent='Couldn\'t read a total from that photo — enter it manually with "+ Add expense".';input.value='';return;}
+    // merchant/category from first meaningful line or keywords
+    const whole=data.text.toLowerCase();
+    let cat='Other',best=0;
+    for(const[c,words]of QC_KEYWORDS){let h=0;words.forEach(w=>{if(whole.includes(w))h++;});if(h>best){best=h;cat=c;}}
+    const merchant=lines.find(l=>/[a-z]{3,}/i.test(l))||'Receipt';
+    DB.entries.push({id:uid(),date:isoOf(new Date()),type:'expense',category:cat,amount,cur:DB.settings.baseCur,notes:merchant.slice(0,40)+' (receipt)',subId:null});
+    persist();refreshAll();input.value='';
+    st.innerHTML=`<span class="pos">✓ Receipt scanned: ${fmt(amount)} → <b>${cat}</b></span>`;
+  }catch{
+    st.textContent='Scan failed — you can still add it manually.';
+    input.value='';
+  }
+}
+
 /* ---------- ADVISOR (local rules engine — no AI server, privacy-first) ---------- */
 const chat=document.getElementById('chat');
 function pushMsg(txt,who){

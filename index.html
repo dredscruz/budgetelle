@@ -212,7 +212,7 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
   </div>
   <div class="login-panel">
     <div class="login-card">
-      <h2>Welcome to Budgetelle.</h2>
+      <h2 style="font-family:'Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:.5px">Welcome to <span style="color:var(--gold)">Budgetelle</span>.</h2>
       <p class="sub">Sign in to your vault, or create one in seconds — new and existing, you're in the right place.</p>
       <form id="login-form">
         <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com" required></div>
@@ -306,9 +306,18 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
 
 <!-- INCOME -->
 <section class="page" id="page-income">
-  <div class="page-head"><div><h1>Income</h1><p class="sub">Every dirham, dollar and euro that comes in.</p></div>
+  <div class="page-head"><div><h1>Income</h1><p class="sub">Every dollar, euro and peso that comes in.</p></div>
   <button class="btn btn-gold" onclick="openEntry('income')">+ Add income</button></div>
   <div class="kpi-grid" id="income-kpis"></div>
+  <div class="card">
+    <h3>⚡ Quick capture</h3>
+    <form class="inline" onsubmit="quickCapture(event,'income')">
+      <div class="field" style="flex:4"><input id="qci-input" placeholder='e.g. "Received 2500 salary today"' autocomplete="off"></div>
+      <button type="button" class="btn btn-ghost" onclick="qcDictate('qci-input')" title="Dictate">🎙</button>
+      <button class="btn btn-blue" type="submit">Post it</button>
+    </form>
+    <span id="qci-status" style="font-size:13px;color:var(--muted)"></span>
+  </div>
   <div class="card"><h3>This month's income</h3><div id="income-list"></div></div>
 </section>
 
@@ -317,6 +326,19 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
   <div class="page-head"><div><h1>Expenses</h1><p class="sub">Know where it goes.</p></div>
   <button class="btn btn-gold" onclick="openEntry('expense')">+ Add expense</button></div>
   <div class="kpi-grid" id="expense-kpis"></div>
+  <div class="card" id="quick-capture">
+    <h3>⚡ Quick capture</h3>
+    <p style="color:var(--muted);font-size:13.5px;margin-bottom:14px;line-height:1.6">Type it naturally ("$42.50 groceries at Carrefour yesterday"), dictate it 🎙, or snap a receipt photo — Budgetelle figures out the amount, date and category.</p>
+    <form class="inline" onsubmit="quickCapture(event)">
+      <div class="field" style="flex:4"><input id="qc-input" placeholder='e.g. "Paid 120 for fuel at Enoc this morning"' autocomplete="off"></div>
+      <button type="button" class="btn btn-ghost" id="qc-mic" onclick="qcDictate()" title="Dictate">🎙</button>
+      <button class="btn btn-blue" type="submit">Post it</button>
+    </form>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+      <label class="btn btn-ghost" style="cursor:pointer;margin:0">📷 Receipt photo<input type="file" id="qc-photo" accept="image/*" capture="environment" style="display:none" onchange="scanReceipt(this)"></label>
+      <span id="qc-status" style="font-size:13px;color:var(--muted)"></span>
+    </div>
+  </div>
   <div class="card"><h3>This month's expenses</h3><div id="expense-list"></div></div>
 </section>
 
