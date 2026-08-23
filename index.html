@@ -390,6 +390,8 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
     <div class="set-row"><div><div class="t">Change password</div><div class="d">Re-keys your vault with a new password. Your data is re-encrypted automatically.</div></div>
       <button class="btn btn-gold" onclick="changePassword()">Change</button></div>
     <div class="set-row"><div><div class="t">Security activity log</div><div class="d" id="sec-log"></div></div></div>
+    <div class="set-row"><div><div class="t">Clear all data</div><div class="d">Empties every record (entries, budgets, goals, assets…) but keeps your login and settings. Cannot be undone.</div></div>
+      <button class="btn btn-danger" onclick="clearAllData()">Clear data</button></div>
     <div class="set-row"><div><div class="t danger" style="color:var(--red)">Destroy vault</div><div class="d">Permanently erase ALL local data (GDPR "right to erasure"). Cannot be undone.</div></div>
       <button class="btn btn-danger" onclick="destroyVault()">Erase everything</button></div>
   </div>

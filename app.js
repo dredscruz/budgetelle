@@ -192,6 +192,18 @@ function destroyVault(){
   localStorage.setItem(LS_USERS,JSON.stringify(u));
   lockVault(); toast('Vault erased.');
 }
+function clearAllData(){
+  if(!confirm('Clear ALL records (entries, budgets, goals, assets, etc.)?\nYour login and settings are kept. This cannot be undone.'))return;
+  const keep=DB.settings, prof=DB.profile, ult=DB.ultimateGoal, logs=[];
+  DB=blankDB();
+  DB.settings=keep; DB.profile=prof; DB.ultimateGoal=ult;
+  logSec(DB,'All data cleared');
+  persist(); refreshAll();
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-dashboard').classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page==='dashboard'));
+  toast('All data cleared — fresh start ✓');
+}
 
 /* ---------- formatting / currency ---------- */
 function fmt(amount, cur){
