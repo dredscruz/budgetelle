@@ -1,11 +1,11 @@
 // Step 1: redirect to Google with PKCE + state
 const crypto = require('crypto');
-const { sign, cookieHeader, SITE, oauthConfigured } = require('./_lib/session');
+const { sign, cookieHeader, SITE, oauthConfigured } = require('../../_lib/session');
 
 module.exports = (req, res) => {
   if (!oauthConfigured()) {
     return res.status(302).redirect('/?auth=unconfigured');
-  }
+  }  
   const verifier = crypto.randomBytes(32).toString('base64url');
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
   const state = crypto.randomBytes(12).toString('base64url');
