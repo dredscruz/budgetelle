@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Budgetelle — Your money, in one vault</title>
 <link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#0a0e14; --bg2:#0f1520; --card:#141b28; --card2:#1a2333;
@@ -33,32 +36,40 @@ input:focus,select:focus{outline:none;border-color:var(--gold)}
 
 /* ---------- LOGIN ---------- */
 #login-screen{display:flex;min-height:100vh}
-.login-brand{flex:1;background:linear-gradient(160deg,#060a10 0%,#0d1420 55%,#12203a 100%);display:flex;flex-direction:column;justify-content:center;padding:64px;color:#fff}
-.login-brand h1{font-size:40px;line-height:1.15;margin:28px 0 18px}
-.login-brand h1 .g{color:var(--gold)} .login-brand h1 .b{color:#5b8cff} .login-brand h1 .gr{color:#34d399}
-.brand-row{display:flex;align-items:center;gap:12px}
-.brand-row img{width:46px;height:46px;border-radius:12px}
-.brand-name{font-size:22px;font-weight:700;color:#fff}
+.login-brand{flex:1.15;background:linear-gradient(165deg,#05080d 0%,#0a101c 55%,#0e1a30 100%);display:flex;flex-direction:column;justify-content:center;padding:72px 84px;color:#fff}
+.serif{font-family:'Playfair Display',Georgia,'Times New Roman',serif}
+.brand-row{display:flex;align-items:center;gap:20px;margin-bottom:56px}
+.brand-row img{width:76px;height:76px;border-radius:20px;box-shadow:0 8px 28px rgba(212,175,55,.22)}
+.brand-name{font-size:44px;font-weight:800;letter-spacing:.5px;color:#fff}
 .brand-name span{color:var(--gold)}
-.login-brand ul{list-style:none;margin-top:8px}
-.login-brand li{margin:10px 0;color:#aab7cc;font-size:15px;padding-left:26px;position:relative}
-.login-brand li::before{content:"◆";position:absolute;left:0;color:var(--gold);font-size:11px;top:3px}
-.login-panel{width:480px;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:32px}
-.login-card{width:100%;max-width:360px;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:36px;box-shadow:var(--shadow)}
-.login-card h2{margin-bottom:4px;font-size:22px}
-.login-card p.sub{color:var(--muted);font-size:13px;margin-bottom:24px}
-.field{margin-bottom:16px}
-.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600;letter-spacing:.4px;text-transform:uppercase}
-.login-card .btn{width:100%;margin-top:8px;padding:13px}
-.login-foot{margin-top:18px;text-align:center;font-size:13px;color:var(--muted)}
-.privacy-note{margin-top:22px;font-size:11.5px;color:var(--muted);text-align:center;line-height:1.55;border-top:1px solid var(--border);padding-top:16px}
+.login-brand h1{font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-weight:500;font-size:58px;line-height:1.14;margin:0 0 26px;letter-spacing:.2px}
+.login-brand h1 .g{color:var(--gold)} .login-brand h1 .b{color:#5b8cff} .login-brand h1 .gr{color:#34d399}
+.login-desc{max-width:480px;color:#9fb0c8;font-size:16.5px;line-height:1.7;margin-bottom:48px;font-style:normal}
+.feat-list{display:flex;flex-direction:column;gap:26px;max-width:460px}
+.feat{display:flex;gap:18px;align-items:flex-start}
+.feat .ic{flex-shrink:0;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:19px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09)}
+.feat b{display:block;font-size:15.5px;margin-bottom:4px;color:#fff;font-weight:600;letter-spacing:.2px}
+.feat p{font-size:13.5px;color:#8496b0;line-height:1.55;margin:0}
+.trust-row{margin-top:60px;padding-top:24px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;color:#5f7292;letter-spacing:.3px}
+.trust-row span{margin-right:26px;white-space:nowrap}
+.trust-row span::before{content:"✓ ";color:var(--green)}
+.login-panel{width:520px;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:40px}
+.login-card{width:100%;max-width:390px;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:46px 42px;box-shadow:var(--shadow)}
+.login-card h2{font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-weight:500;font-size:32px;margin-bottom:8px;letter-spacing:.2px}
+.login-card p.sub{color:var(--muted);font-size:14px;margin-bottom:30px;line-height:1.5}
+.field{margin-bottom:18px}
+.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:7px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase}
+.field input,.field select{padding:13px 14px;border-radius:10px;font-size:14.5px}
+.login-card .btn{width:100%;margin-top:10px;padding:15px;font-size:15px;border-radius:10px}
+.login-foot{margin-top:22px;text-align:center;font-size:13.5px;color:var(--muted)}
+.privacy-note{margin-top:28px;font-size:12px;color:var(--muted);text-align:center;line-height:1.65;border-top:1px solid var(--border);padding-top:20px}
 .err{color:var(--red);font-size:13px;margin-top:8px;display:none}
 
 /* ---------- APP SHELL ---------- */
 #app{display:none}
 header.topbar{display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
-header .brand-row img{width:36px;height:36px;border-radius:9px}
-header .brand-name{font-size:17px}
+header .brand-row img{width:44px;height:44px;border-radius:12px}
+header .brand-name{font-size:24px;font-weight:800}
 .search-wrap{flex:1;max-width:420px;margin-left:12px}
 .cur-badge{font-size:12px;color:var(--gold);border:1px solid var(--gold);padding:4px 10px;border-radius:20px;font-weight:600}
 .icon-btn{background:transparent;border:1px solid var(--border);border-radius:8px;width:38px;height:38px;font-size:17px;color:var(--text)}
@@ -70,8 +81,8 @@ nav.sidebar{width:230px;background:var(--bg2);border-right:1px solid var(--borde
 .nav-sec{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);opacity:.65;margin:16px 14px 6px}
 main.content{flex:1;padding:28px 32px;max-width:1200px}
 .page{display:none} .page.active{display:block}
-.page h1{font-size:26px;margin-bottom:4px}
-.page .sub{color:var(--muted);font-size:14px;margin-bottom:24px}
+.page h1{font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-weight:500;font-size:30px;letter-spacing:.2px;margin-bottom:5px}
+.page .sub{color:var(--muted);font-size:14.5px;line-height:1.6;margin-bottom:26px}
 .page-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;gap:16px;flex-wrap:wrap}
 
 /* cards & tables */
@@ -148,27 +159,33 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
 <!-- ============ LOGIN ============ -->
 <div id="login-screen">
   <div class="login-brand">
-    <div class="brand-row"><img src="assets/logo.png" alt="Budgetelle logo"><div class="brand-name">Budget<span>elle</span></div></div>
-    <h1>Your money,<br><span class="g">guarded.</span><br><span class="b">Tracked.</span><br><span class="gr">Grown.</span></h1>
-    <ul>
-      <li>Everything in one encrypted vault</li>
-      <li>Know before you spend</li>
-      <li>Ask the Advisor what you can afford</li>
-      <li>Your data never leaves this device</li>
-    </ul>
+    <div class="brand-row">
+      <img src="assets/logo.png" alt="Budgetelle logo">
+      <div class="brand-name">Budget<span>elle</span></div>
+    </div>
+    <h1>Track it quietly.<br>Spend it <span class="b">wisely.</span><br>Grow it <span class="g">steadily.</span></h1>
+    <p class="login-desc">A private vault for everything you earn, spend and save — with an advisor that tells you what you can truly afford.</p>
+    <div class="feat-list">
+      <div class="feat"><div class="ic">🔒</div><div><b>Everything in one encrypted vault</b><p>AES-256 encryption on your device. No servers, no accounts database, nothing to breach.</p></div></div>
+      <div class="feat"><div class="ic">👁</div><div><b>Know before you spend</b><p>Budgets, recurring bills and renewal alerts keep every decision an informed one.</p></div></div>
+      <div class="feat"><div class="ic">🧭</div><div><b>Ask what you can afford</b><p>The built-in Advisor answers "Paris this year?" or "new phone?" from your real numbers.</p></div></div>
+    </div>
+    <div class="trust-row">
+      <span>Private by design</span><span>No data sale — ever</span><span>Export or erase anytime</span>
+    </div>
   </div>
   <div class="login-panel">
     <div class="login-card">
       <h2>Welcome back.</h2>
-      <p class="sub">Sign in to open your vault.</p>
+      <p class="sub">Sign in to pick up where you left off. Your vault has been waiting.</p>
       <form id="login-form">
         <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com" required></div>
         <div class="field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" required minlength="6"></div>
         <p class="err" id="login-err">Wrong email or password.</p>
         <button class="btn btn-gold" type="submit">Unlock vault</button>
       </form>
-      <p class="login-foot">First time? <button class="link-btn" onclick="signUp()">Create your vault</button></p>
-      <div class="privacy-note">🔒 Budgetelle is private by design. Your credentials are salted &amp; hashed, and all financial data is AES-GCM encrypted on this device only. No servers. No trackers. No data sale — ever.</div>
+      <p class="login-foot">New here? <button class="link-btn" onclick="signUp()">Create your vault</button></p>
+      <div class="privacy-note">🔒 Credentials are salted &amp; hashed; financial data is AES-GCM encrypted on this device only. No trackers. No data sale — ever.</div>
     </div>
   </div>
 </div>
