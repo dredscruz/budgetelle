@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Budgetelle — Your money, in one vault</title>
+<link rel="icon" href="assets/logo.png">
+<style>
+:root{
+  --bg:#0a0e14; --bg2:#0f1520; --card:#141b28; --card2:#1a2333;
+  --border:#243044; --text:#e8edf5; --muted:#8b98ad;
+  --blue:#2563eb; --green:#10b981; --gold:#d4af37; --red:#ef4444;
+  --shadow:0 4px 16px rgba(0,0,0,.45);
+}
+[data-theme="light"]{
+  --bg:#f2f4f8; --bg2:#ffffff; --card:#ffffff; --card2:#f6f8fb;
+  --border:#dde3ec; --text:#141a24; --muted:#5c6b80;
+  --shadow:0 4px 14px rgba(20,30,50,.08);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;width:100%}
+input:focus,select:focus{outline:none;border-color:var(--gold)}
+.btn{border:none;border-radius:8px;padding:11px 20px;font-size:14px;font-weight:600;transition:.15s}
+.btn-gold{background:var(--gold);color:#111}
+.btn-gold:hover{filter:brightness(1.1)}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-green{background:var(--green);color:#fff}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+.btn-danger{background:transparent;color:var(--red);border:1px solid var(--red)}
+.link-btn{background:none;border:none;color:var(--gold);font-size:13px;text-decoration:underline}
+
+/* ---------- LOGIN ---------- */
+#login-screen{display:flex;min-height:100vh}
+.login-brand{flex:1;background:linear-gradient(160deg,#060a10 0%,#0d1420 55%,#12203a 100%);display:flex;flex-direction:column;justify-content:center;padding:64px;color:#fff}
+.login-brand h1{font-size:40px;line-height:1.15;margin:28px 0 18px}
+.login-brand h1 .g{color:var(--gold)} .login-brand h1 .b{color:#5b8cff} .login-brand h1 .gr{color:#34d399}
+.brand-row{display:flex;align-items:center;gap:12px}
+.brand-row img{width:46px;height:46px;border-radius:12px}
+.brand-name{font-size:22px;font-weight:700;color:#fff}
+.brand-name span{color:var(--gold)}
+.login-brand ul{list-style:none;margin-top:8px}
+.login-brand li{margin:10px 0;color:#aab7cc;font-size:15px;padding-left:26px;position:relative}
+.login-brand li::before{content:"◆";position:absolute;left:0;color:var(--gold);font-size:11px;top:3px}
+.login-panel{width:480px;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:32px}
+.login-card{width:100%;max-width:360px;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:36px;box-shadow:var(--shadow)}
+.login-card h2{margin-bottom:4px;font-size:22px}
+.login-card p.sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600;letter-spacing:.4px;text-transform:uppercase}
+.login-card .btn{width:100%;margin-top:8px;padding:13px}
+.login-foot{margin-top:18px;text-align:center;font-size:13px;color:var(--muted)}
+.privacy-note{margin-top:22px;font-size:11.5px;color:var(--muted);text-align:center;line-height:1.55;border-top:1px solid var(--border);padding-top:16px}
+.err{color:var(--red);font-size:13px;margin-top:8px;display:none}
+
+/* ---------- APP SHELL ---------- */
+#app{display:none}
+header.topbar{display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
+header .brand-row img{width:36px;height:36px;border-radius:9px}
+header .brand-name{font-size:17px}
+.search-wrap{flex:1;max-width:420px;margin-left:12px}
+.cur-badge{font-size:12px;color:var(--gold);border:1px solid var(--gold);padding:4px 10px;border-radius:20px;font-weight:600}
+.icon-btn{background:transparent;border:1px solid var(--border);border-radius:8px;width:38px;height:38px;font-size:17px;color:var(--text)}
+.layout{display:flex;min-height:calc(100vh - 63px)}
+nav.sidebar{width:230px;background:var(--bg2);border-right:1px solid var(--border);padding:18px 10px;flex-shrink:0}
+.nav-item{display:flex;align-items:center;gap:11px;padding:11px 14px;border-radius:9px;color:var(--muted);cursor:pointer;font-size:14px;font-weight:500;margin:2px 0;border-left:3px solid transparent}
+.nav-item:hover{background:var(--card);color:var(--text)}
+.nav-item.active{background:var(--card);color:var(--text);border-left-color:var(--gold)}
+.nav-sec{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);opacity:.65;margin:16px 14px 6px}
+main.content{flex:1;padding:28px 32px;max-width:1200px}
+.page{display:none} .page.active{display:block}
+.page h1{font-size:26px;margin-bottom:4px}
+.page .sub{color:var(--muted);font-size:14px;margin-bottom:24px}
+.page-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;gap:16px;flex-wrap:wrap}
+
+/* cards & tables */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+.kpi .lbl{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}
+.kpi .val{font-size:24px;font-weight:700}
+.kpi .note{font-size:12px;color:var(--muted);margin-top:5px}
+.pos{color:var(--green)} .neg{color:var(--red)} .goldtxt{color:var(--gold)} .bluetxt{color:#5b8cff}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:22px;box-shadow:var(--shadow);margin-bottom:20px}
+.card h3{font-size:15px;margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+@media(max-width:1000px){.grid2,.grid3{grid-template-columns:1fr}.login-brand{display:none}.login-panel{width:100%}nav.sidebar{display:none}}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--border)}
+td{padding:12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+.tbl-actions button{background:none;border:none;color:var(--gold);font-size:13px;cursor:pointer;margin-right:8px}
+.tbl-actions button.del{color:var(--red)}
+.pill{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:capitalize}
+.pill.income,.pill.current,.pill.active,.pill.cleared{background:rgba(16,185,129,.15);color:var(--green)}
+.pill.expense,.pill.urgent,.pill.overdue{background:rgba(239,68,68,.15);color:var(--red)}
+.pill.duesoon{background:rgba(212,175,55,.15);color:var(--gold)}
+.empty{text-align:center;color:var(--muted);padding:44px 20px;font-size:14px}
+.progress{height:9px;background:var(--card2);border-radius:6px;overflow:hidden;margin:10px 0 6px}
+.progress>div{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--blue),var(--green))}
+.bar-row{display:flex;justify-content:space-between;font-size:13px;margin-top:8px}
+form.inline{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+form.inline .field{margin-bottom:0;flex:1;min-width:130px}
+.mt{margin-top:16px}
+
+/* advisor */
+.chat-box{height:380px;overflow-y:auto;background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px;margin-bottom:14px}
+.msg{max-width:78%;padding:11px 15px;border-radius:14px;font-size:14px;line-height:1.55;white-space:pre-wrap}
+.msg.user{align-self:flex-end;background:var(--blue);color:#fff;border-bottom-right-radius:4px}
+.msg.bot{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:20px;padding:7px 14px;font-size:13px}
+.chip:hover{border-color:var(--gold)}
+
+/* toggles */
+.switch{position:relative;width:46px;height:25px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:var(--border);border-radius:25px;transition:.2s;cursor:pointer}
+.slider::before{content:"";position:absolute;height:19px;width:19px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+.slider{background:var(--green)}
+.switch input:checked+.slider::before{transform:translateX(21px)}
+.set-row{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid var(--border);gap:16px}
+.set-row:last-child{border-bottom:none}
+.set-row .t{font-weight:600;font-size:14px}
+.set-row .d{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5}
+
+/* modal */
+.modal-back{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;padding:20px}
+.modal-back.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;width:100%;max-width:520px;max-height:88vh;overflow-y:auto;box-shadow:var(--shadow)}
+.modal h3{margin-bottom:18px}
+.modal .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--gold);color:#111;padding:12px 24px;border-radius:10px;font-weight:600;font-size:14px;z-index:300;transition:.3s;opacity:0}
+.toast.show{transform:translateX(-50%);opacity:1}
+.bar-chart{display:flex;align-items:flex-end;gap:14px;height:190px;padding-top:10px}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+.bars{display:flex;gap:4px;width:70%;height:100%;align-items:flex-end}
+.bars div{flex:1;border-radius:4px 4px 0 0;min-height:2px}
+.bar-lbl{font-size:11px;color:var(--muted)}
+.legend{display:flex;gap:18px;font-size:12.5px;color:var(--muted);margin-top:12px}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.donut-wrap{display:flex;gap:26px;align-items:center;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login-screen">
+  <div class="login-brand">
+    <div class="brand-row"><img src="assets/logo.png" alt="Budgetelle logo"><div class="brand-name">Budget<span>elle</span></div></div>
+    <h1>Your money,<br><span class="g">guarded.</span><br><span class="b">Tracked.</span><br><span class="gr">Grown.</span></h1>
+    <ul>
+      <li>Everything in one encrypted vault</li>
+      <li>Know before you spend</li>
+      <li>Ask the Advisor what you can afford</li>
+      <li>Your data never leaves this device</li>
+    </ul>
+  </div>
+  <div class="login-panel">
+    <div class="login-card">
+      <h2>Welcome back.</h2>
+      <p class="sub">Sign in to open your vault.</p>
+      <form id="login-form">
+        <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com" required></div>
+        <div class="field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" required minlength="6"></div>
+        <p class="err" id="login-err">Wrong email or password.</p>
+        <button class="btn btn-gold" type="submit">Unlock vault</button>
+      </form>
+      <p class="login-foot">First time? <button class="link-btn" onclick="signUp()">Create your vault</button></p>
+      <div class="privacy-note">🔒 Budgetelle is private by design. Your credentials are salted &amp; hashed, and all financial data is AES-GCM encrypted on this device only. No servers. No trackers. No data sale — ever.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+<header class="topbar">
+  <div class="brand-row"><img src="assets/logo.png" alt=""><div class="brand-name">Budget<span style="color:var(--gold)">elle</span></div></div>
+  <div class="search-wrap"><input id="global-search" placeholder="Search anything…"></div>
+  <span class="cur-badge" id="cur-badge">$ USD</span>
+  <button class="icon-btn" id="theme-toggle" title="Toggle dark / light">🌙</button>
+  <button class="icon-btn" onclick="lockVault()" title="Lock vault">🔒</button>
+  <button class="btn btn-ghost" onclick="lockVault()">Sign out</button>
+</header>
+
+<div class="layout">
+<nav class="sidebar" id="sidebar">
+  <div class="nav-item active" data-page="dashboard">📊 Dashboard</div>
+  <div class="nav-item" data-page="profile">👤 My Profile</div>
+  <div class="nav-sec">Money In · Out</div>
+  <div class="nav-item" data-page="income">💰 Income</div>
+  <div class="nav-item" data-page="expenses">🧾 Expenses</div>
+  <div class="nav-item" data-page="budget">🎯 Budgets</div>
+  <div class="nav-item" data-page="recurring">🔁 Recurring</div>
+  <div class="nav-sec">Wealth</div>
+  <div class="nav-item" data-page="networth">📈 Net Worth</div>
+  <div class="nav-item" data-page="goals">🏁 Goals</div>
+  <div class="nav-item" data-page="assets">🏠 Assets &amp; Property</div>
+  <div class="nav-item" data-page="insurance">🛡 Insurance</div>
+  <div class="nav-item" data-page="documents">📄 Documents</div>
+  <div class="nav-item" data-page="creditcards">💳 Credit Cards</div>
+  <div class="nav-item" data-page="loans">🏦 Loans &amp; EMI</div>
+  <div class="nav-sec">You</div>
+  <div class="nav-item" data-page="advisor">🧭 Advisor</div>
+  <div class="nav-item" data-page="security">🔐 Security Center</div>
+  <div class="nav-item" data-page="settings">⚙️ Settings</div>
+</nav>
+
+<main class="content">
+
+<!-- DASHBOARD -->
+<section class="page active" id="page-dashboard">
+  <div class="page-head"><div><h1>Dashboard</h1><p class="sub">Your money at a glance.</p></div>
+  <button class="btn btn-blue" onclick="exportData()">Export</button></div>
+  <div class="kpi-grid" id="dash-kpis"></div>
+  <div class="grid2">
+    <div class="card"><h3>Cash flow — last 6 months</h3><div class="bar-chart" id="chart-cashflow"></div>
+      <div class="legend"><span><i style="background:var(--green)"></i>Income</span><span><i style="background:var(--red)"></i>Expenses</span></div></div>
+    <div class="card"><h3>Spending by category — this month</h3><div class="donut-wrap" id="chart-spend"></div></div>
+  </div>
+  <div class="grid2 mt">
+    <div class="card"><h3>Recent activity</h3><div id="dash-recent"></div></div>
+    <div class="card"><h3>Renewal radar</h3><div id="dash-renewals"></div></div>
+  </div>
+</section>
+
+<!-- PROFILE -->
+<section class="page" id="page-profile">
+  <h1>My Profile</h1><p class="sub">Who you are — kept private, always.</p>
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:20px;margin-bottom:20px">
+      <img src="assets/logo.png" style="width:72px;height:72px;border-radius:50%" alt="">
+      <div><div id="prof-name" style="font-size:20px;font-weight:700">—</div><div style="color:var(--gold);font-size:13px;margin-top:3px">Vault owner · Private by design</div></div>
+      <button class="btn btn-gold" style="margin-left:auto" onclick="openEditProfile()">Edit profile</button>
+    </div>
+    <table id="profile-table"></table>
+  </div>
+  <div class="card"><h3>My ultimate goal</h3><textarea id="ult-goal" rows="3" placeholder="Set the goal everything else is working towards…" onchange="saveUltGoal()"></textarea></div>
+</section>
+
+<!-- INCOME -->
+<section class="page" id="page-income">
+  <div class="page-head"><div><h1>Income</h1><p class="sub">Every dirham, dollar and euro that comes in.</p></div>
+  <button class="btn btn-gold" onclick="openEntry('income')">+ Add income</button></div>
+  <div class="kpi-grid" id="income-kpis"></div>
+  <div class="card"><h3>This month's income</h3><div id="income-list"></div></div>
+</section>
+
+<!-- EXPENSES -->
+<section class="page" id="page-expenses">
+  <div class="page-head"><div><h1>Expenses</h1><p class="sub">Know where it goes.</p></div>
+  <button class="btn btn-gold" onclick="openEntry('expense')">+ Add expense</button></div>
+  <div class="kpi-grid" id="expense-kpis"></div>
+  <div class="card"><h3>This month's expenses</h3><div id="expense-list"></div></div>
+</section>
+
+<!-- BUDGET -->
+<section class="page" id="page-budget">
+  <div class="page-head"><div><h1>Budgets</h1><p class="sub" id="budget-month-lbl"></p></div>
+  <button class="btn btn-gold" onclick="openBudget()">+ Add budget</button></div>
+  <div class="kpi-grid" id="budget-kpis"></div>
+  <div class="card"><h3>Category budgets vs actual</h3><div id="budget-list"></div></div>
+</section>
+
+<!-- RECURRING -->
+<section class="page" id="page-recurring">
+  <div class="page-head"><div><h1>Subscriptions &amp; Recurring</h1><p class="sub">OTT, memberships and bills.</p></div>
+  <button class="btn btn-gold" onclick="openRecurring()">+ Add recurring</button></div>
+  <div class="kpi-grid" id="recur-kpis"></div>
+  <div class="card"><div id="recurring-list"></div></div>
+</section>
+
+<!-- NETWORTH -->
+<section class="page" id="page-networth">
+  <div class="page-head"><div><h1>Net Worth</h1><p class="sub">Monthly assets vs liabilities.</p></div>
+  <button class="btn btn-blue" onclick="openSnapshot()">+ Add snapshot</button></div>
+  <div class="kpi-grid" id="nw-kpis"></div>
+  <div class="card"><h3>Trend</h3><svg id="nw-chart" width="100%" height="220" viewBox="0 0 800 220" preserveAspectRatio="none"></svg></div>
+  <div class="card"><div id="nw-table"></div></div>
+</section>
+
+<!-- GOALS -->
+<section class="page" id="page-goals">
+  <div class="page-head"><div><h1>Goals</h1><p class="sub">Savings targets and projections.</p></div>
+  <button class="btn btn-gold" onclick="openGoal()">+ Add goal</button></div>
+  <div class="grid2" id="goals-list"></div>
+</section>
+
+<!-- ASSETS -->
+<section class="page" id="page-assets">
+  <div class="page-head"><div><h1>Assets &amp; Property</h1><p class="sub">Properties, vehicles, investments and more.</p></div>
+  <button class="btn btn-gold" onclick="openAsset()">+ Add asset</button></div>
+  <div class="kpi-grid" id="asset-kpis"></div>
+  <div class="card"><div id="asset-table"></div></div>
+</section>
+
+<!-- INSURANCE -->
+<section class="page" id="page-insurance">
+  <div class="page-head"><div><h1>Insurance &amp; Renewals</h1><p class="sub">Premiums and renewal status.</p></div>
+  <button class="btn btn-gold" onclick="openPolicy()">+ Add policy</button></div>
+  <div class="card"><div id="ins-table"></div></div>
+</section>
+
+<!-- DOCUMENTS -->
+<section class="page" id="page-documents">
+  <div class="page-head"><div><h1>Important Documents</h1><p class="sub">Renewal alerts for passports, visas and IDs.</p></div>
+  <button class="btn btn-gold" onclick="openDoc()">+ Add document</button></div>
+  <div class="card"><div id="doc-table"></div></div>
+</section>
+
+<!-- CREDIT CARDS -->
+<section class="page" id="page-creditcards">
+  <div class="page-head"><div><h1>Credit Cards</h1><p class="sub">Reward rules and best-card recommendations.</p></div>
+  <button class="btn btn-gold" onclick="openCard()">+ Add card</button></div>
+  <div class="card"><h3>Which card should I use?</h3>
+    <form class="inline" onsubmit="recommendCard(event)">
+      <div class="field"><label>Category</label><input id="rec-cat" placeholder="Groceries" required></div>
+      <div class="field"><label>Amount</label><input id="rec-amt" type="number" step="0.01" placeholder="500" required></div>
+      <button class="btn btn-blue">Recommend</button>
+    </form>
+    <div id="rec-result" class="mt"></div>
+  </div>
+  <div class="card"><h3>Your cards &amp; reward rules</h3><div id="card-list"></div></div>
+</section>
+
+<!-- LOANS -->
+<section class="page" id="page-loans">
+  <div class="page-head"><div><h1>Loans &amp; EMI</h1><p class="sub">Mortgages, personal loans and car finance.</p></div>
+  <button class="btn btn-gold" onclick="openLoan()">+ Add loan</button></div>
+  <div class="kpi-grid" id="loan-kpis"></div>
+  <div class="card"><div id="loan-table"></div></div>
+</section>
+
+<!-- ADVISOR -->
+<section class="page" id="page-advisor">
+  <div class="page-head"><div><h1>Advisor</h1><p class="sub">Ask affordability questions — answered from YOUR real numbers.</p></div></div>
+  <div class="chat-box" id="chat"><div class="msg bot">Hi! I'm your Budgetelle Advisor 🧭\nI read your income, expenses, budgets and goals to answer questions like:\n• "Can I afford to travel to Paris this year?"\n• "Can I buy a new phone?"\n• "Can I plan for a new house?"\nAsk me anything.</div></div>
+  <div class="chips">
+    <button class="chip" onclick="askChip('Can I afford to travel to Paris this year?')">✈️ Paris trip this year?</button>
+    <button class="chip" onclick="askChip('Can I buy a new phone?')">📱 New phone?</button>
+    <button class="chip" onclick="askChip('Can I plan to buy a new house?')">🏠 New house?</button>
+    <button class="chip" onclick="askChip('How much can I safely save each month?')">💾 Safe monthly savings?</button>
+  </div>
+  <form class="inline" onsubmit="askAdvisor(event)">
+    <div class="field" style="flex:4"><input id="advisor-input" placeholder="e.g. Can I afford a $1,200 laptop next month?" autocomplete="off"></div>
+    <button class="btn btn-gold" style="flex:0">Ask</button>
+  </form>
+</section>
+
+<!-- SECURITY -->
+<section class="page" id="page-security">
+  <h1>Security Centre</h1><p class="sub">Encryption, sessions and activity.</p>
+  <div class="card"><h3>Data encryption</h3>
+    <div class="set-row"><div><div class="t">AES-GCM 256-bit vault encryption</div><div class="d">All financial records are encrypted with your session key before touching storage. Decryption happens only in memory while you're signed in.</div></div><span class="pill active">Active</span></div>
+    <div class="set-row"><div><div class="t">Password hashing</div><div class="d">Credentials stored as PBKDF2-SHA256 hashes with per-vault random salt. We never see — or could reconstruct — your password.</div></div><span class="pill active">Active</span></div>
+    <div class="set-row"><div><div class="t">Zero-knowledge architecture</div><div class="d">No server, no account database, no analytics, no third-party scripts. There is literally nothing to breach.</div></div><span class="pill active">Active</span></div>
+  </div>
+  <div class="card"><h3>Session</h3>
+    <div class="set-row"><div><div class="t">Auto-lock after idle</div><div class="d">Vault locks automatically after inactivity.</div></div>
+      <div style="display:flex;gap:10px;align-items:center"><input id="idle-min" type="number" min="1" max="240" style="width:90px" value="15"><button class="btn btn-gold" onclick="saveIdle()">Save</button></div></div>
+    <div class="set-row"><div><div class="t">Security activity log</div><div class="d" id="sec-log"></div></div></div>
+    <div class="set-row"><div><div class="t danger" style="color:var(--red)">Destroy vault</div><div class="d">Permanently erase ALL local data (GDPR "right to erasure"). Cannot be undone.</div></div>
+      <button class="btn btn-danger" onclick="destroyVault()">Erase everything</button></div>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section class="page" id="page-settings">
+  <h1>Settings</h1><p class="sub">Display, currency, reminders and your data.</p>
+  <div class="card"><h3>Display</h3>
+    <div class="set-row"><div><div class="t">Theme</div><div class="d">Switch between dark and light display.</div></div>
+      <div class="switch"><input type="checkbox" id="theme-switch" onchange="toggleTheme(this.checked)"><span class="slider"></span></div></div>
+  </div>
+  <div class="card"><h3>Currency</h3>
+    <form class="inline" onsubmit="return false">
+      <div class="field"><label>Base currency</label><select id="base-cur"></select></div>
+      <button class="btn btn-gold" onclick="saveBaseCur()">Set default</button>
+    </form>
+    <p class="sub" style="margin-top:14px">Additional currencies (amounts entered in another currency convert automatically):</p>
+    <div id="extra-curs"></div>
+    <form class="inline mt" onsubmit="addCurrency(event)">
+      <div class="field"><label>Add currency</label>
+        <select id="new-cur"><option value="USD">$ US Dollar</option><option value="EUR">€ Euro</option><option value="GBP">£ British Pound</option><option value="AED">AED UAE Dirham</option><option value="PHP">₱ Philippine Peso</option><option value="INR">₹ Indian Rupee</option><option value="JPY">¥ Japanese Yen</option><option value="CAD">C$ Canadian Dollar</option><option value="AUD">A$ Australian Dollar</option><option value="SGD">S$ Singapore Dollar</option><option value="CHF">CHF Swiss Franc</option><option value="SAR">SAR Saudi Riyal</option></select></div>
+      <div class="field"><label>Rate to base (1 unit = ? base)</label><input id="cur-rate" type="number" step="any" required placeholder="e.g. 3.67"></div>
+      <button class="btn btn-blue">Add / update</button>
+    </form>
+  </div>
+  <div class="card"><h3>Household</h3>
+    <form class="inline" onsubmit="return false">
+      <div class="field"><label>Household name</label><input id="hh-name"></div>
+      <button class="btn btn-gold" onclick="saveHousehold()">Save</button>
+    </form>
+  </div>
+  <div class="card"><h3>Renewal reminders</h3>
+    <div class="set-row"><div><div class="t">Email renewal digest</div><div class="d">Local-only reminders shown in Renewal Radar. No email is ever sent — privacy first.</div></div>
+      <div class="switch"><input type="checkbox" id="remind-on" checked onchange="saveRemind()"><span class="slider"></span></div></div>
+    <form class="inline mt"><div class="field"><label>Lead time (days)</label><input id="lead-days" type="number" min="1" max="90" value="30"></div><button class="btn btn-gold" onclick="saveLead()">Save</button></form>
+  </div>
+  <div class="card"><h3>Your data</h3>
+    <div class="set-row"><div><div class="t">Export everything</div><div class="d">Download a decrypted JSON of all your data (GDPR portability).</div></div>
+      <button class="btn btn-gold" onclick="exportData()">Export JSON</button></div>
+    <div class="set-row"><div><div class="t">Import backup</div><div class="d">Restore from a previous export file.</div></div>
+      <input type="file" id="import-file" accept=".json" style="width:auto" onchange="importData(event)"></div>
+  </div>
+</section>
+
+</main>
+</div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-back" id="modal-back"><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
