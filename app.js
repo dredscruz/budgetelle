@@ -320,18 +320,34 @@ function refreshAll(){
 
 function renderDashboard(){
   const tm=thisMonthEntries();
-  const inc=sumInBase(tm,'income'), exp=sumInBase(tm,'expense'), net=inc-exp;
-  const rate=inc>0?((net/inc)*100):0;
+  const disp=domCur(tm);
+  const inc=tm.reduce((a,e)=>a+convAmt(e.amount,e.cur,disp),0), exp=tm.reduce((a,e)=>a+convAmt(e.amount,e.cur,disp)*(e.type==='expense'?1:0),0);
+  const incBase=sumInBase(tm,'income'), expBase=sumInBase(tm,'expense');
+  const net=inc-exp, netBase=incBase-expBase;
+  const rate=incBase>0?((netBase/incBase)*100):0;
   const nw=DB.snapshots.length?DB.snapshots[DB.snapshots.length-1]:null;
   const nwv=nw?(nw.assets-nw.liabilities):null;
-  const subTotal=tm.filter(e=>e.type==='expense'&&e.subId).reduce((a,e)=>a+toBase(e.amount,e.cur),0);
+  const subTotal=tm.filter(e=>e.type==='expense'&&e.subId).reduce((a,e)=>a+convAmt(e.amount,e.cur,disp),0);
+  // per-currency breakdown of this month's entries
+  const curRows=[...new Set(tm.map(e=>e.cur||DB.settings.baseCur))].map(c=>{
+    const es=tm.filter(e=>(e.cur||DB.settings.baseCur)===c);
+    return {cur:c,
+      inc:es.filter(e=>e.type==='income').reduce((a,e)=>a+e.amount,0),
+      exp:es.filter(e=>e.type==='expense').reduce((a,e)=>a+e.amount,0)};
+  });
   document.getElementById('dash-kpis').innerHTML=[
-    kpi('Income',fmt(inc),'pos'),kpi('Expenses',fmt(exp),'neg'),
-    kpi('Net savings',fmt(net),net>=0?'pos':'neg'),
+    kpi('Income',fmt(inc,disp),'pos',disp!==DB.settings.baseCur?('≈ '+fmt(incBase)+' converted'):undefined),
+    kpi('Expenses',fmt(exp,disp),'neg',disp!==DB.settings.baseCur?('≈ '+fmt(expBase)+' converted'):undefined),
+    kpi('Net savings',fmt(net,disp),net>=0?'pos':'neg',disp!==DB.settings.baseCur?('≈ '+fmt(netBase)+' converted'):undefined),
     kpi('Savings rate',rate.toFixed(1)+'%','', rate>=20?'On track':undefined),
-    kpi('Subscriptions',exp>0?Math.round(subTotal/exp*100)+'% of expenses':fmt(subTotal),'bluetxt', subTotal>0?fmt(subTotal)+' this month':undefined),
-    kpi('Net worth',nwv!=null?fmt(nwv):'—','goldtxt', nw?('Assets '+fmt(nw.assets)+' − Liab '+fmt(nw.liabilities)):undefined)
+    kpi('Subscriptions',exp>0?Math.round(subTotal/exp*100)+'% of expenses':fmt(subTotal,disp),'bluetxt', subTotal>0?fmt(subTotal,disp)+' this month':undefined),
+    kpi('Net worth',nwv!=null?fmt(nwv,DB.settings.baseCur):'—','goldtxt', nw?('Assets '+fmt(nw.assets)+' − Liab '+fmt(nw.liabilities)):undefined)
   ].join('');
+  // currency breakdown table
+  document.getElementById('dash-currencies').innerHTML=curRows.length>1||disp!==DB.settings.baseCur?
+    '<h3>Currency breakdown — this month</h3>'+table(['Currency','Income','Expenses','Net'],
+      curRows.map(r=>[r.cur,`<span class="pos">+${fmt(r.inc,r.cur)}</span>`,`<span class="neg">−${fmt(r.exp,r.cur)}</span>`,`<b>${fmt(r.inc-r.exp,r.cur)}</b>`]))
+    :'';
   // cashflow bars
   const months=lastNMonths(6);
   const data=months.map(m=>{
@@ -726,13 +742,16 @@ const MEMBER_COLORS=['#2563eb','#10b981','#d4af37','#ef4444','#8b5cf6','#f97316'
 /* ---------- FAMILY ---------- */
 function renderFamily(){
   const wrap=document.getElementById('family-list');
-  wrap.innerHTML=DB.members.length?table(['','Member','Role','Privacy','Hide amounts','Actions'],
+  wrap.innerHTML=DB.members.length?table(['','Member','Role','Access','Privacy','Hide amounts','Actions'],
     DB.members.map(m=>[
       memberDot(m),
       `<b>${escAttr(m.name)}</b>`,
       escAttr(m.role||''),
+      canSeeAll(m.role)?'<span class="pill active">view all</span>':'<span class="pill duesoon">own only</span>',
       m.masked?'<span class="pill duesoon">amounts hidden</span>':'<span class="pill active">visible</span>',
-      `<label class="switch" title="Hide amounts for this member"><input type="checkbox" ${m.masked?'checked':''} onchange="toggleMemberMask('${m.id}',this.checked)"><span class="slider"></span></label>`,
+      canSeeAll(m.role)
+        ?`<label class="switch" title="Hide amounts for this member"><input type="checkbox" ${m.masked?'checked':''} onchange="toggleMemberMask('${m.id}',this.checked)"><span class="slider"></span></label>`
+        :'<span style="color:var(--muted);font-size:12px" title="Only Owner and Partner can have amounts hidden">n/a</span>',
       `<span class="tbl-actions"><button onclick="editMember('${m.id}')">Edit</button><button class="del" onclick="delItem('members','${m.id}')">Delete</button></span>`
     ]))
     :'<div class="empty">No family members yet.<br><button class="btn btn-gold mt" style="margin-top:14px" onclick="openMember()">+ Add your first member</button></div>';
@@ -758,7 +777,7 @@ function renderFamily(){
 function openMember(){
   openModal(`<h3>Add family member</h3><form onsubmit="saveMember(event)">
   ${f('Name','<input id="fm-name" required placeholder="e.g. Sarah">')}
-  <div class="grid2">${f('Role',`<select id="fm-role"><option>Partner</option><option>Child</option><option>Dependent</option><option>Parent</option><option>Other</option></select>`)}
+  <div class="grid2">${f('Role',`<select id="fm-role"><option>Owner</option><option>Partner</option><option>Child</option><option>Dependent</option><option>Parent</option><option>Other</option></select>`)}
   ${f('Color',`<select id="fm-color">${MEMBER_COLORS.map((c,i)=>`<option value="${c}" ${i?'':'selected'}>Color ${i+1}</option>`).join('')}</select>`)}</div>
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Add member</button></div></form>`);
 }
@@ -771,10 +790,15 @@ function saveMember(e){
 function editMember(id){const m=DB.members.find(x=>x.id===id);if(!m)return;
   openModal(`<h3>Edit member</h3><form onsubmit="updMember(event,'${id}')">
   ${f('Name',`<input id="fm-name" value="${escAttr(m.name)}" required>`)}
-  ${f('Role',`<select id="fm-role"><option ${m.role==='Partner'?'selected':''}>Partner</option><option ${m.role==='Child'?'selected':''}>Child</option><option ${m.role==='Dependent'?'selected':''}>Dependent</option><option ${m.role==='Parent'?'selected':''}>Parent</option><option ${m.role==='Other'?'selected':''}>Other</option></select>`)}
+  ${f('Role',`<select id="fm-role"><option ${m.role==='Owner'?'selected':''}>Owner</option><option ${m.role==='Partner'?'selected':''}>Partner</option><option ${m.role==='Child'?'selected':''}>Child</option><option ${m.role==='Dependent'?'selected':''}>Dependent</option><option ${m.role==='Parent'?'selected':''}>Parent</option><option ${m.role==='Other'?'selected':''}>Other</option></select>`)}
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);}
 function updMember(e,id){e.preventDefault();const m=DB.members.find(x=>x.id===id);m.name=v('fm-name');m.role=v('fm-role');persist();closeModal();refreshAll();}
-function toggleMemberMask(id,val){const m=DB.members.find(x=>x.id===id);if(m)m.masked=val;persist();refreshAll();toast(val?'Amounts hidden for '+m.name:'Amounts visible for '+m.name);}
+function canSeeAll(role){ return role==='Owner'||role==='Partner'; }
+function toggleMemberMask(id,val){
+  const m=DB.members.find(x=>x.id===id);if(!m)return;
+  if(!canSeeAll(m.role)){toast('Hide amounts is only available for Owner and Partner.');renderFamily();return;}
+  m.masked=val;persist();refreshAll();toast(val?'Amounts hidden for '+m.name:'Amounts visible for '+m.name);
+}
 function toggleFamilyView(val){DB.settings.familyView=val;persist();refreshAll();toast(val?'Family view ON — private entries hidden':'Family view OFF — showing everything');}
 function memberOptions(sel){
   let o='<option value="">— Whole household —</option>';
