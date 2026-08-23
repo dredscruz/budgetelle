@@ -715,6 +715,57 @@ function importData(ev){
   rd.readAsText(file);
 }
 
+/* ---------- password recovery & change ---------- */
+function forgotPassword(){
+  const em=document.getElementById('login-email').value.trim().toLowerCase();
+  openModal(`<h3>Reset your vault</h3>
+  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:18px">Budgetelle is zero-knowledge: your data is encrypted with a key derived from your password, so <b style="color:var(--text)">no one — including us — can recover it</b>. If you've lost your password, your existing data cannot be decrypted. You can reset the vault for this email and start fresh.</p>
+  ${f('Email','<input id="fp-email" type="email" value="'+escAttr(em)+'" required>')}
+  ${f('New password (min 6 characters)','<input id="fp-pass" type="password" minlength="6" required>' )}
+  ${f('Confirm new password','<input id="fp-pass2" type="password" minlength="6" required>')}
+  <p class="err" id="fp-err"></p>
+  <div class="actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doReset()">Reset vault</button></div>`);
+}
+async function doReset(){
+  const em=v('fp-email').trim().toLowerCase(),p1=v('fp-pass'),p2=v('fp-pass2');
+  const errEl=document.getElementById('fp-err');
+  if(p1!==p2){errEl.textContent='Passwords do not match.';errEl.style.display='block';return;}
+  if(!getUsers()[em]){errEl.textContent='No vault exists for that email.';errEl.style.display='block';return;}
+  // wipe old encrypted blob, register new credential
+  localStorage.removeItem(LS_DATA(em));
+  const users=getUsers();
+  const salt=crypto.getRandomValues(new Uint8Array(16));
+  users[em]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(em+':'+p1+':'+btoa(String.fromCharCode(...salt)))};
+  localStorage.setItem(LS_USERS,JSON.stringify(users));
+  closeModal();toast('Vault reset. Sign in with your new password.');
+}
+async function changePassword(){
+  openModal(`<h3>Change password</h3>
+  ${f('Current password','<input id="cp-old" type="password" required>')}
+  ${f('New password (min 6)','<input id="cp-new" type="password" minlength="6" required>')}
+  ${f('Confirm new password','<input id="cp-new2" type="password" minlength="6" required>')}
+  <div class="actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doChangePass()">Update</button></div>`);
+}
+async function doChangePass(){
+  const oldP=v('cp-old'),n1=v('cp-new'),n2=v('cp-new2');
+  if(n1!==n2)return toast('New passwords do not match.');
+  // verify current password by decrypting
+  const u=getUsers()[SESSION.email];
+  const oldSalt=Uint8Array.from(atob(u.salt),c=>c.charCodeAt(0));
+  try{ await decryptJSON(await deriveKey(oldP,oldSalt), JSON.parse(localStorage.getItem(LS_DATA(SESSION.email)))); }
+  catch{ return toast('Current password is incorrect.'); }
+  if(oldP===n1)return toast('New password must differ from current.');
+  // re-key: derive new salt+key, re-encrypt DB, update credential
+  const newSalt=crypto.getRandomValues(new Uint8Array(16));
+  SESSION.key=await deriveKey(n1,newSalt);
+  const blob=await encryptJSON(SESSION.key,DB);
+  localStorage.setItem(LS_DATA(SESSION.email),JSON.stringify(blob));
+  const users=getUsers();
+  users[SESSION.email]={salt:btoa(String.fromCharCode(...newSalt)),hash:await sha256hex(SESSION.email+':'+n1+':'+btoa(String.fromCharCode(...newSalt)))};
+  localStorage.setItem(LS_USERS,JSON.stringify(users));
+  closeModal();logSecNow('Password changed');renderSecurity();toast('Password updated ✓');
+}
+
 /* ---------- ADVISOR (local rules engine — no AI server, privacy-first) ---------- */
 const chat=document.getElementById('chat');
 function pushMsg(txt,who){

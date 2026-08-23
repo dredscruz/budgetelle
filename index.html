@@ -51,19 +51,19 @@ input:focus,select:focus{outline:none;border-color:var(--gold)}
 .feat b{display:block;font-size:16px;margin-bottom:5px;color:#fff;font-weight:600;letter-spacing:.2px}
 .feat p{font-size:14px;color:#8496b0;line-height:1.6;margin:0}
 .login-panel{width:540px;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:40px;position:relative}
-.login-card{width:100%;max-width:400px;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:48px 44px;box-shadow:var(--shadow)}
-.login-card h2{font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-weight:500;font-size:34px;margin-bottom:8px;letter-spacing:.2px}
-.login-card p.sub{color:var(--muted);font-size:14px;margin-bottom:32px;line-height:1.55}
-.field{margin-bottom:18px}
-.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:7px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase}
-.field input,.field select{padding:13px 14px;border-radius:10px;font-size:14.5px}
-.login-card .btn{width:100%;margin-top:10px;padding:15px;font-size:15px;border-radius:10px}
-.login-links{margin-top:18px;text-align:center;font-size:13.5px;color:var(--muted);line-height:2}
-.divider{display:flex;align-items:center;gap:14px;margin:22px 0;color:var(--muted);font-size:11px;letter-spacing:1.5px;text-transform:uppercase}
+.login-card{width:100%;max-width:470px;background:var(--card);border:1px solid var(--border);border-radius:22px;padding:56px 52px;box-shadow:var(--shadow)}
+.login-card h2{font-family:'Playfair Display',Georgia,'Times New Roman',serif;font-weight:500;font-size:42px;margin-bottom:10px;letter-spacing:.2px}
+.login-card p.sub{color:var(--muted);font-size:16px;margin-bottom:36px;line-height:1.55}
+.field{margin-bottom:20px}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:8px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase}
+.field input,.field select{padding:15px 16px;border-radius:11px;font-size:16px}
+.login-card .btn{width:100%;margin-top:12px;padding:17px;font-size:17px;border-radius:11px}
+.login-links{margin-top:22px;text-align:center;font-size:15px;color:var(--muted);line-height:2.1}
+.divider{display:flex;align-items:center;gap:14px;margin:26px 0;color:var(--muted);font-size:11px;letter-spacing:1.5px;text-transform:uppercase}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
-.btn-google{width:100%;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:10px;padding:13px;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:10px}
+.btn-google{width:100%;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:11px;padding:15px;font-size:15.5px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:10px}
 .btn-google:hover{border-color:var(--gold)}
-.privacy-note{position:absolute;bottom:26px;left:40px;right:40px;font-size:12px;color:var(--muted);line-height:1.9;text-align:left}
+.privacy-note{position:absolute;bottom:26px;left:44px;right:44px;font-size:13px;color:var(--muted);line-height:1.9;text-align:left}
 .privacy-note div::before{content:"✓ ";color:var(--green)}
 .err{color:var(--red);font-size:13px;margin-top:8px;display:none}
 
@@ -181,10 +181,10 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
         <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com" required></div>
         <div class="field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" required minlength="6"></div>
         <p class="err" id="login-err">Wrong email or password.</p>
-        <button class="btn btn-gold" type="submit">Unlock vault</button>
+        <button class="btn btn-gold" type="submit">Sign in</button>
       </form>
       <div class="login-links">
-        Forgotten your password?<br>
+        <button class="link-btn" onclick="forgotPassword()">Forgot your password?</button><br>
         New here? <button class="link-btn" onclick="signUp()">Create your vault</button>
       </div>
       <div class="divider">or</div>
@@ -387,6 +387,8 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
   <div class="card"><h3>Session</h3>
     <div class="set-row"><div><div class="t">Auto-lock after idle</div><div class="d">Vault locks automatically after inactivity.</div></div>
       <div style="display:flex;gap:10px;align-items:center"><input id="idle-min" type="number" min="1" max="240" style="width:90px" value="15"><button class="btn btn-gold" onclick="saveIdle()">Save</button></div></div>
+    <div class="set-row"><div><div class="t">Change password</div><div class="d">Re-keys your vault with a new password. Your data is re-encrypted automatically.</div></div>
+      <button class="btn btn-gold" onclick="changePassword()">Change</button></div>
     <div class="set-row"><div><div class="t">Security activity log</div><div class="d" id="sec-log"></div></div></div>
     <div class="set-row"><div><div class="t danger" style="color:var(--red)">Destroy vault</div><div class="d">Permanently erase ALL local data (GDPR "right to erasure"). Cannot be undone.</div></div>
       <button class="btn btn-danger" onclick="destroyVault()">Erase everything</button></div>
