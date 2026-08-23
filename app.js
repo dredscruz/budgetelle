@@ -239,6 +239,20 @@ function domCur(list){ /* the currency most of these entries were entered in */
   const c={}; list.forEach(e=>{ c[e.cur||DB.settings.baseCur]=(c[e.cur||DB.settings.baseCur]||0)+1; });
   return Object.entries(c).sort((a,b)=>b[1]-a[1])[0][0];
 }
+function eqBase(amount,cur){ /* $ equivalent string */
+  return '<span style="color:var(--muted);font-size:12px">≈ '+fmt(toBase(amount,cur))+'</span>';
+}
+function curSelect(coll,id,cur){ /* inline currency switcher */
+  return `<select class="cur-sel" onchange="setCur('${coll}','${id}',this.value)" title="Change currency">${curOptions(cur)}</select>`;
+}
+function setCur(coll,id,val){
+  const item=(DB[coll]||[]).find(x=>x.id===id); if(!item)return;
+  const old=item.cur||DB.settings.baseCur;
+  item.cur=val;
+  // keep stored figure numerically identical unless a rate exists both ways
+  if(DB.settings.rates[val]&&DB.settings.rates[old]) item.amount=+(toBase(item.amount,old)/DB.settings.rates[val]).toFixed(2);
+  persist();refreshAll();toast('Currency updated ✓');
+}
 
 /* ---------- app shell ---------- */
 function enterApp(){
@@ -428,9 +442,11 @@ function biggest(l){if(!l.length)return '—';const b=l.reduce((x,y)=>x.amount>y
 function renderEntryTable(list,type){
   if(!list.length)return '<div class="empty">Nothing yet — add your first entry above.</div>';
   const sorted=[...list].sort((a,b)=>b.date.localeCompare(a.date));
-  return table(['Date','Category','Amount','Notes',''],sorted.map(e=>[
+  return table(['Date','Category','Amount','Currency','$ Equivalent','Notes',''],sorted.map(e=>[
     e.date, e.category,
     `<span class="${type==='income'?'pos':'neg'}">${type==='income'?'+':'−'}${fmt(e.amount,e.cur)}</span>`,
+    curSelect('entries',e.id,e.cur),
+    eqBase(e.amount,e.cur),
     e.notes||'—',
     `<span class="tbl-actions"><button onclick="editEntry('${e.id}')">Edit</button><button class="del" onclick="delItem('entries','${e.id}')">Delete</button></span>`
   ]));
@@ -473,7 +489,7 @@ function renderBudget(){
     kpi('Total budgeted',fmt(totB),'',totB?'≈ '+fmt(totB)+' total':'')+kpi('Spent (tracked cats)',fmt(totS),totS>totB?'neg':'pos')+kpi('Remaining',fmt(totB-totS),totB-totS>=0?'pos':'neg');
   document.getElementById('budget-list').innerHTML=bs.length?bs.map(b=>{
     const sp=spentBy[b.category]||0,pc=Math.min(100,sp/b.limit*100),over=sp>b.limit;
-    return `<div style="margin-bottom:18px"><div class="bar-row"><b>${b.category}</b><span>${fmt(sp)} of ${fmt(b.limit)} ${over?'<span class="pill expense">over</span>':''}</span></div>
+    return `<div style="margin-bottom:18px"><div class="bar-row"><b>${b.category} ${curSelect('budgets',b.id,b.cur)}</b><span>${fmt(sp)} of ${fmt(b.limit,b.cur)} <span style="color:var(--muted);font-size:12px">(≈ ${fmt(toBase(b.limit,b.cur))})</span> ${over?'<span class="pill expense">over</span>':''}</span></div>
     <div class="progress"><div style="width:${pc}%;background:${over?'var(--red)':'linear-gradient(90deg,var(--blue),var(--green))'}"></div></div></div>
     <span class="tbl-actions"><button onclick="editBudget('${b.id}')">Edit</button><button class="del" onclick="delItem('budgets','${b.id}')">Delete</button></span>`;
   }).join(''):'<div class="empty">No budgets set for this month.</div>';
@@ -499,10 +515,10 @@ function renderRecurring(){
     kpi('Monthly equivalent',fmt(act.reduce((a,r)=>a+toBase(monthlyEquiv(r),r.cur),0)))+kpi('Active items',act.length)
     +kpi('Posted this month',postedCount());
   const sorted=[...DB.recurring].sort((a,b)=>(a.next||'').localeCompare(b.next||''));
-  document.getElementById('recurring-list').innerHTML=DB.recurring.length?table(['Name','Category','Amount','Frequency','Next','Status',''],
+  document.getElementById('recurring-list').innerHTML=DB.recurring.length?table(['Name','Category','Amount','Currency','$ Eq / mo','Frequency','Next','Status',''],
     sorted.map(r=>{
       const due=r.status==='Active'&&r.next&&r.next<=isoOf(new Date());
-      return [r.name,r.category,fmt(r.amount),r.freq,r.next,
+      return [r.name,r.category,fmt(r.amount,r.cur),curSelect('recurring',r.id,r.cur),eqBase(monthlyEquiv(r),r.cur),r.freq,r.next,
       `<span class="pill ${r.status.toLowerCase()}">${r.status}</span>${due?' <span class="pill duesoon">due</span>':''}`,
       `${due?`<button class="link-btn" onclick="postRecurring('${r.id}')">Post to Expenses</button> `:''}<span class="tbl-actions"><button onclick="editRecurring('${r.id}')">Edit</button><button class="del" onclick="delItem('recurring','${r.id}')">Delete</button></span>`]}))
     :'<div class="empty">No subscriptions yet.</div>';
@@ -612,8 +628,8 @@ function renderAssets(){
   const tot=Object.values(byCat).reduce((a,b)=>a+b,0);
   document.getElementById('asset-kpis').innerHTML=kpi('Total value',fmt(tot),'goldtxt',tot?'≈ '+fmt(tot)+' converted':'')
     +Object.entries(byCat).slice(0,3).map(([c,v])=>kpi(c,fmt(v))).join('');
-  document.getElementById('asset-table').innerHTML=DB.assets.length?table(['Name','Category','Value','Notes',''],
-    DB.assets.map(a=>[a.name,a.category,`<b>${fmt(a.value,a.cur)}</b>`,a.notes||'—',
+  document.getElementById('asset-table').innerHTML=DB.assets.length?table(['Name','Category','Value','Currency','$ Equivalent','Notes',''],
+    DB.assets.map(a=>[a.name,a.category,`<b>${fmt(a.value,a.cur)}</b>`,curSelect('assets',a.id,a.cur),eqBase(a.value,a.cur),a.notes||'—',
     `<span class="tbl-actions"><button onclick="editAssetSimple('${a.id}')">Edit</button><button class="del" onclick="delItem('assets','${a.id}')">Delete</button></span>`]))
     :'<div class="empty">Nothing recorded yet — add what you own above.</div>';
 }
@@ -643,8 +659,9 @@ function escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 /* ---------- insurance ---------- */
 function statusFor(due){const days=Math.ceil((new Date(due)-new Date())/86400000);return days<0?['Overdue','expense']:days<=(DB.settings.leadDays)?['Due soon','duesoon']:['Current','active'];}
 function renderInsurance(){
-  document.getElementById('ins-table').innerHTML=DB.insurance.length?table(['Policy','Type','Premium','Frequency','Due','Status',''],
-    DB.insurance.map(i=>{const st=statusFor(i.due);return [i.policy,i.type,fmt(i.premium,i.cur),i.frequency,i.due,`<span class="pill ${st[1]}">${st[0]}</span>`,
+  document.getElementById('ins-table').innerHTML=DB.insurance.length?table(['Policy','Type','Premium','Currency','$ Eq / mo','Frequency','Due','Status',''],
+    DB.insurance.map(i=>{const st=statusFor(i.due);return [i.policy,i.type,fmt(i.premium,i.cur),curSelect('insurance',i.id,i.cur),
+      eqBase(i.frequency==='yearly'?i.premium/12:i.frequency==='quarterly'?i.premium/3:i.premium,i.cur),i.frequency,i.due,`<span class="pill ${st[1]}">${st[0]}</span>`,
     `<span class="tbl-actions"><button onclick="editPolicy('${i.id}')">Edit</button><button class="del" onclick="delItem('insurance','${i.id}')">Delete</button></span>`]}))
     :'<div class="empty">No policies.</div>';
 }
@@ -718,8 +735,9 @@ function renderLoans(){
   const out=DB.loans.reduce((a,l)=>a+toBase(l.outstanding,l.cur),0);
   const emi=DB.loans.reduce((a,l)=>a+toBase(l.emi,l.cur),0);
   document.getElementById('loan-kpis').innerHTML=kpi('Total outstanding',fmt(out),'goldtxt',out?'≈ '+fmt(out)+' converted':'')+kpi('Monthly EMI',fmt(emi),'bluetxt',emi?'≈ '+fmt(emi)+' converted':'')+kpi('Active loans',DB.loans.length);
-  document.getElementById('loan-table').innerHTML=DB.loans.length?table(['Loan','Lender','Principal','Rate','EMI','Outstanding','Started',''],
-    DB.loans.map(l=>[l.name,l.lender,fmt(l.principal,l.cur),l.rate+'%',fmt(l.emi,l.cur),`<b class="goldtxt">${fmt(l.outstanding,l.cur)}</b>`,l.started,
+  document.getElementById('loan-table').innerHTML=DB.loans.length?table(['Loan','Lender','Principal','Rate','EMI','Outstanding','Currency','$ Eq Outstanding','Started',''],
+    DB.loans.map(l=>[l.name,l.lender,fmt(l.principal,l.cur),l.rate+'%',fmt(l.emi,l.cur),`<b class="goldtxt">${fmt(l.outstanding,l.cur)}</b>`,
+    curSelect('loans',l.id,l.cur),eqBase(l.outstanding,l.cur),l.started,
     `<span class="tbl-actions"><button onclick="editLoan('${l.id}')">Edit</button><button class="del" onclick="delItem('loans','${l.id}')">Delete</button></span>`]))
     :'<div class="empty">Debt-free! No loans recorded. 🎉</div>';
 }
