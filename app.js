@@ -239,18 +239,11 @@ function domCur(list){ /* the currency most of these entries were entered in */
   const c={}; list.forEach(e=>{ c[e.cur||DB.settings.baseCur]=(c[e.cur||DB.settings.baseCur]||0)+1; });
   return Object.entries(c).sort((a,b)=>b[1]-a[1])[0][0];
 }
-function eqBase(amount,cur){ /* true USD equivalent — universal reference */
-  const baseAmt=toBase(amount,cur);
-  let usd=baseAmt;
-  if(DB.settings.baseCur!=='USD'){
-    const d=DEFAULT_RATES[DB.settings.baseCur];
-    if(d)usd=baseAmt/d; // base units per 1 USD
-    else{
-      const r=DB.settings.rates['USD']; // 1 USD = ? base
-      if(r)usd=baseAmt/r;
-    }
-  }
-  return '<span style="color:var(--muted);font-size:12px">≈ '+fmt(usd,'USD')+'</span>';
+function eqBase(amount,cur){ /* equivalent in the CURRENT default currency */
+  return '<span style="color:var(--muted);font-size:12px">≈ '+fmt(toBase(amount,cur))+'</span>';
+}
+function eqHead(suffix){ /* dynamic column header: "AED Eq" / "AED Eq/mo" */
+  return DB.settings.baseCur+' Eq'+(suffix||'');
 }
 function usdOf(amount,cur){ /* plain number: USD equivalent */
   const baseAmt=toBase(amount,cur);
@@ -387,7 +380,7 @@ function renderDashboard(){
   ].join('');
   // currency breakdown table
   document.getElementById('dash-currencies').innerHTML=curRows.length?
-    '<h3>Currency breakdown — this month</h3>'+table(['Currency','Income','$ Eq','Expenses','$ Eq','Net','$ Eq'],
+    '<h3>Currency breakdown — this month</h3>'+table(['Currency','Income',eqHead(),'Expenses',eqHead(),'Net',eqHead()],
       curRows.map(r=>{const bi=toBase(r.inc,r.cur),be=toBase(r.exp,r.cur);return [r.cur,
         `<span class="pos">+${fmt(r.inc,r.cur)}</span>`,`<span style="color:var(--muted);font-size:12px">≈ ${fmt(bi)}</span>`,
         `<span class="neg">−${fmt(r.exp,r.cur)}</span>`,`<span style="color:var(--muted);font-size:12px">≈ ${fmt(be)}</span>`,
@@ -410,7 +403,7 @@ function renderDashboard(){
   renderDonut(document.getElementById('chart-spend'),byCat);
   // recent
   const recent=[...DB.entries].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,7);
-  document.getElementById('dash-recent').innerHTML=recent.length?table(['Date','Type','Category','Amount','$ Equivalent'],
+  document.getElementById('dash-recent').innerHTML=recent.length?table(['Date','Type','Category','Amount',eqHead('uivalent')],
     recent.map(e=>[e.date,`<span class="pill ${e.type}">${e.type}</span>`,e.category,
     `<span class="${e.type==='income'?'pos':'neg'}">${e.type==='income'?'+':'−'}${fmt(e.amount,e.cur)}</span>`,
     eqBase(e.amount,e.cur)])):'<div class="empty">No activity yet.</div>';
@@ -481,7 +474,7 @@ function renderEntryTable(list,type){
   const visible=list.filter(e=>canTouchEntry(e));
   if(!visible.length)return '<div class="empty">Nothing yet — add your first entry above.</div>';
   const sorted=[...visible].sort((a,b)=>b.date.localeCompare(a.date));
-  return table(['Date','Category','Amount','Currency','$ Equivalent','Notes',''],sorted.map(e=>[
+  return table(['Date','Category','Amount','Currency',eqHead('uivalent'),'Notes',''],sorted.map(e=>[
     e.date, e.category,
     `<span class="${type==='income'?'pos':'neg'}">${type==='income'?'+':'−'}${fmt(e.amount,e.cur)}</span>`,
     curSelect('entries',e.id,e.cur),
@@ -557,7 +550,7 @@ function renderRecurring(){
     kpiUsd('Monthly equivalent',fmt(act.reduce((a,r)=>a+toBase(monthlyEquiv(r),r.cur),0)),'',undefined,usdOf(act.reduce((a,r)=>a+toBase(monthlyEquiv(r),r.cur),0),DB.settings.baseCur))+kpi('Active items',act.length)
     +kpi('Posted this month',postedCount());
   const sorted=[...DB.recurring].sort((a,b)=>(a.next||'').localeCompare(b.next||''));
-  document.getElementById('recurring-list').innerHTML=DB.recurring.length?table(['Name','Category','Amount','Currency','$ Eq / mo','Frequency','Next','Status',''],
+  document.getElementById('recurring-list').innerHTML=DB.recurring.length?table(['Name','Category','Amount','Currency',eqHead('/mo'),'Frequency','Next','Status',''],
     sorted.map(r=>{
       const due=r.status==='Active'&&r.next&&r.next<=isoOf(new Date());
       return [r.name,r.category,fmt(r.amount,r.cur),curSelect('recurring',r.id,r.cur),eqBase(monthlyEquiv(r),r.cur),r.freq,r.next,
@@ -670,7 +663,7 @@ function renderAssets(){
   const tot=Object.values(byCat).reduce((a,b)=>a+b,0);
   document.getElementById('asset-kpis').innerHTML=kpiUsd('Total value',fmt(tot),'goldtxt','',usdOf(tot,DB.settings.baseCur))
     +Object.entries(byCat).slice(0,3).map(([c,v])=>kpi(c,fmt(v))).join('');
-  document.getElementById('asset-table').innerHTML=DB.assets.length?table(['Name','Category','Value','Currency','$ Equivalent','Notes',''],
+  document.getElementById('asset-table').innerHTML=DB.assets.length?table(['Name','Category','Value','Currency',eqHead('uivalent'),'Notes',''],
     DB.assets.map(a=>[a.name,a.category,`<b>${fmt(a.value,a.cur)}</b>`,curSelect('assets',a.id,a.cur),eqBase(a.value,a.cur),a.notes||'—',
     `<span class="tbl-actions"><button onclick="editAssetSimple('${a.id}')">Edit</button><button class="del" onclick="delItem('assets','${a.id}')">Delete</button></span>`]))
     :'<div class="empty">Nothing recorded yet — add what you own above.</div>';
@@ -701,7 +694,7 @@ function escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 /* ---------- insurance ---------- */
 function statusFor(due){const days=Math.ceil((new Date(due)-new Date())/86400000);return days<0?['Overdue','expense']:days<=(DB.settings.leadDays)?['Due soon','duesoon']:['Current','active'];}
 function renderInsurance(){
-  document.getElementById('ins-table').innerHTML=DB.insurance.length?table(['Policy','Type','Premium','Currency','$ Eq / mo','Frequency','Due','Status',''],
+  document.getElementById('ins-table').innerHTML=DB.insurance.length?table(['Policy','Type','Premium','Currency',eqHead('/mo'),'Frequency','Due','Status',''],
     DB.insurance.map(i=>{const st=statusFor(i.due);return [i.policy,i.type,fmt(i.premium,i.cur),curSelect('insurance',i.id,i.cur),
       eqBase(i.frequency==='yearly'?i.premium/12:i.frequency==='quarterly'?i.premium/3:i.premium,i.cur),i.frequency,i.due,`<span class="pill ${st[1]}">${st[0]}</span>`,
     `<span class="tbl-actions"><button onclick="editPolicy('${i.id}')">Edit</button><button class="del" onclick="delItem('insurance','${i.id}')">Delete</button></span>`]}))
@@ -777,7 +770,7 @@ function renderLoans(){
   const out=DB.loans.reduce((a,l)=>a+toBase(l.outstanding,l.cur),0);
   const emi=DB.loans.reduce((a,l)=>a+toBase(l.emi,l.cur),0);
   document.getElementById('loan-kpis').innerHTML=kpiUsd('Total outstanding',fmt(out),'goldtxt','',usdOf(out,DB.settings.baseCur))+kpiUsd('Monthly EMI',fmt(emi),'bluetxt','',usdOf(emi,DB.settings.baseCur))+kpi('Active loans',DB.loans.length);
-  document.getElementById('loan-table').innerHTML=DB.loans.length?table(['Loan','Lender','Principal','Rate','EMI','Outstanding','Currency','$ Eq Outstanding','Started',''],
+  document.getElementById('loan-table').innerHTML=DB.loans.length?table(['Loan','Lender','Principal','Rate','EMI','Outstanding','Currency',eqHead(' Outstanding'),'Started',''],
     DB.loans.map(l=>[l.name,l.lender,fmt(l.principal,l.cur),l.rate+'%',fmt(l.emi,l.cur),`<b class="goldtxt">${fmt(l.outstanding,l.cur)}</b>`,
     curSelect('loans',l.id,l.cur),eqBase(l.outstanding,l.cur),l.started,
     `<span class="tbl-actions"><button onclick="editLoan('${l.id}')">Edit</button><button class="del" onclick="delItem('loans','${l.id}')">Delete</button></span>`]))
