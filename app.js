@@ -89,7 +89,7 @@ async function openSession(email, pass) {
   SESSION.key = await deriveKey(pass, salt);
   SESSION.email = email;
   const raw = localStorage.getItem(LS_DATA(email));
-  DB = raw ? await decryptJSON(SESSION.key, JSON.parse(raw)) : seedDemo(blankDB());
+  DB = raw ? await decryptJSON(SESSION.key, JSON.parse(raw)) : blankDB();
   resetIdle();
   enterApp();
 }
