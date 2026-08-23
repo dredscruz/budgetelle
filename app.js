@@ -49,7 +49,9 @@ function blankDB() {
     documents: [],      // {id,doc,type,number,holder,issued,expiry}
     cards: [],          // {id,name,bank,rules:[{cat,pct}]}
     loans: [],          // {id,name,lender,principal,rate,emi,outstanding,started}
-    settings: { theme:'dark', baseCur:'USD', rates:{}, household:'My Household', remind:true, leadDays:30, idleMin:15 },
+    members: [],        // {id,name,role,color,masked}
+    scoreHistory: [],   // {month:'YYYY-MM',score}
+    settings: { theme:'dark', baseCur:'USD', rates:{}, household:'My Household', remind:true, leadDays:30, idleMin:15, familyView:false },
     secLog: []
   };
 }
@@ -219,6 +221,7 @@ function toBase(amount, cur){
 
 /* ---------- app shell ---------- */
 function enterApp(){
+  migrateDB();
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   applyTheme(DB.settings.theme==='light');
@@ -266,6 +269,7 @@ function openEntry(type){
       ${f('Currency','<select id="e-cur">'+curOptions()+'</select>')}
     </div>
     ${f('Amount','<input type="number" step="0.01" min="0" id="e-amt" required placeholder="0.00">')}
+    <div class="grid2">${f('Family member',`<select id="e-member">${memberOptions()}</select>`)}${f('Privacy','<select id="e-priv"><option value="shared">Shared with family</option><option value="private">Private (hidden in family view)</option></select>')}</div>
     ${f('Notes','<input id="e-notes" placeholder="Optional note">')}
     <label style="display:flex;gap:10px;align-items:center;font-size:13px;margin-top:6px"><input type="checkbox" id="e-recur" style="width:auto"> Repeat monthly (auto-suggest in Recurring)</label>
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div>
@@ -280,7 +284,9 @@ function saveEntry(e,type){
     amount:+document.getElementById('e-amt').value,
     cur:document.getElementById('e-cur').value,
     notes:document.getElementById('e-notes').value,
-    recurring:recur
+    recurring:recur,
+    memberId:v('e-member')||null,
+    private:v('e-priv')==='private'
   });
   persist(); closeModal(); refreshAll();
   toast(type==='income'?'Income added ✓':'Expense added ✓');
@@ -296,6 +302,7 @@ function refreshAll(){
   renderDashboard(); renderIncome(); renderExpenses(); renderBudget(); renderRecurring();
   renderNetWorth(); renderGoals(); renderAssets(); renderInsurance(); renderDocuments();
   renderCards(); renderLoans(); renderProfile(); renderSettings(); renderSecurity();
+  renderFamily(); renderScore(); renderSimulator(); renderCalendar(); renderStreaks(); renderSubAudit(); renderDigest();
   document.getElementById('cur-badge').textContent=(CURRENCIES[DB.settings.baseCur]?.s??'')+' '+DB.settings.baseCur;
 }
 
@@ -398,15 +405,23 @@ function editEntry(id){
     <div class="grid2">${f('Category',`<select id="e-cat">${catOptions(cats,e.category)}</select>`)}${f('Currency',`<select id="e-cur">${curOptions(e.cur)}</select>`)}</div>
     ${f('Amount',`<input type="number" step="0.01" id="e-amt" value="${e.amount}" required>`)}
     ${f('Notes',`<input id="e-notes" value="${escAttr(e.notes||'')}">`)}
+    <div class="grid2">${f('Family member',`<select id="e-member">${memberOptions(e.memberId)}</select>`)}${f('Privacy',`<select id="e-priv"><option value="shared">Shared with family</option><option value="private" ${e.private?'selected':''}>Private (hidden in family view)</option></select>`)}</div>
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);
 }
 function updateEntry(e,id){
   e.preventDefault();
   const x=DB.entries.find(x=>x.id===id);
   x.date=v('e-date');x.category=v('e-cat');x.cur=v('e-cur');x.amount=+v('e-amt');x.notes=v('e-notes');
+  x.memberId=v('e-member')||null;x.private=v('e-priv')==='private';
   persist();closeModal();refreshAll();toast('Updated ✓');
 }
 function v(id){return document.getElementById(id).value;}
+function delItem(coll,id){
+  const labels={entries:'entry',budgets:'budget',recurring:'subscription',snapshots:'snapshot',goals:'goal',assets:'asset',insurance:'policy',documents:'document',cards:'card',loans:'loan',members:'member'};
+  if(!confirm('Delete this '+(labels[coll]||'item')+'? This cannot be undone.'))return;
+  DB[coll]=DB[coll].filter(x=>x.id!==id);
+  persist();refreshAll();toast('Deleted ✓');
+}
 
 /* ---------- budget ---------- */
 function renderBudget(){
@@ -682,6 +697,313 @@ function editLoan(id){const l=DB.loans.find(x=>x.id===id);
   ${f('Monthly EMI',`<input type="number" step="0.01" id="l-emi" value="${l.emi}" required>`)}
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);}
 function updLoan(e,id){e.preventDefault();const l=DB.loans.find(x=>x.id===id);l.outstanding=+v('l-out');l.emi=+v('l-emi');persist();closeModal();refreshAll();}
+
+/* ---------- migrations & visibility ---------- */
+function migrateDB(){
+  if(!DB.members)DB.members=[];
+  if(!DB.scoreHistory)DB.scoreHistory=[];
+  if(DB.settings.familyView===undefined)DB.settings.familyView=false;
+}
+function visEntries(){ return DB.settings.familyView ? DB.entries.filter(e=>!e.private) : DB.entries; }
+function memberName(id){ const m=DB.members.find(x=>x.id===id); return m?m.name:''; }
+function memberDot(m,size){ size=size||22; return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${m.color};color:#111;font-weight:700;font-size:${size/2.2}px;flex-shrink:0">${(m.name||'?')[0].toUpperCase()}</span>`; }
+const MEMBER_COLORS=['#2563eb','#10b981','#d4af37','#ef4444','#8b5cf6','#f97316','#06b6d4','#ec4899'];
+
+/* ---------- FAMILY ---------- */
+function renderFamily(){
+  const wrap=document.getElementById('family-list');
+  wrap.innerHTML=DB.members.length?table(['','Member','Role','Privacy','',''],
+    DB.members.map(m=>[
+      memberDot(m),
+      `<b>${escAttr(m.name)}</b>`,
+      escAttr(m.role||''),
+      m.masked?'<span class="pill duesoon">amounts hidden</span>':'<span class="pill active">visible</span>',
+      `${m.masked?'':''}`,
+      `<label class="switch" title="Hide amounts for this member"><input type="checkbox" ${m.masked?'checked':''} onchange="toggleMemberMask('${m.id}',this.checked)"><span class="slider"></span></label>
+       <span class="tbl-actions"><button onclick="editMember('${m.id}')">Edit</button><button class="del" onclick="delItem('members','${m.id}')">Delete</button></span>`
+    ]))
+    :'<div class="empty">No family members yet. Add your partner, kids or dependents — then attribute income and spending to each person.</div>';
+  // privacy settings
+  document.getElementById('fam-view-sw').checked=!!DB.settings.familyView;
+  // per-member breakdown (this month)
+  const tm=thisMonthEntries();
+  const rows=DB.members.map(m=>{
+    const mine=tm.filter(e=>e.memberId===m.id);
+    const inc=mine.filter(e=>e.type==='income').reduce((a,e)=>a+toBase(e.amount,e.cur),0);
+    const exp=mine.filter(e=>e.type==='expense').reduce((a,e)=>a+toBase(e.amount,e.cur),0);
+    return {m,inc,exp,n:mine.length};
+  });
+  const un=tm.filter(e=>!e.memberId&&e.type==='expense').reduce((a,e)=>a+toBase(e.amount,e.cur),0);
+  document.getElementById('family-breakdown').innerHTML=(rows.some(r=>r.n)||un)?table(['','Member','Income','Expenses','Net','Entries'],
+    rows.filter(r=>r.n).map(r=>[memberDot(r.m),escAttr(r.m.name)+(r.m.masked?' <span style="color:var(--gold);font-size:12px">(hidden)</span>':''),
+      `<span class="${r.m.masked?'':''}">${r.m.masked?'••••':fmt(r.inc)}</span>`,
+      `<span>${r.m.masked?'••••':fmt(r.exp)}</span>`,
+      `<b>${r.m.masked?'••••':fmt(r.inc-r.exp)}</b>`,r.n]))
+    .join('')+(un?`<tr><td></td><td style="color:var(--muted)">Shared / unattributed</td><td></td><td>${fmt(un)}</td><td></td><td></td></tr>`:'')
+    :'<div class="empty">Nothing attributed yet.</div>';
+}
+function openMember(){
+  openModal(`<h3>Add family member</h3><form onsubmit="saveMember(event)">
+  ${f('Name','<input id="fm-name" required placeholder="e.g. Sarah">')}
+  <div class="grid2">${f('Role',`<select id="fm-role"><option>Partner</option><option>Child</option><option>Dependent</option><option>Parent</option><option>Other</option></select>`)}
+  ${f('Color',`<select id="fm-color">${MEMBER_COLORS.map((c,i)=>`<option value="${c}" ${i?'':'selected'}>Color ${i+1}</option>`).join('')}</select>`)}</div>
+  <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Add member</button></div></form>`);
+}
+function saveMember(e){
+  e.preventDefault();
+  const color=MEMBER_COLORS[DB.members.length%MEMBER_COLORS.length]||v('fm-color');
+  DB.members.push({id:uid(),name:v('fm-name'),role:v('fm-role'),color,masked:false});
+  persist();closeModal();refreshAll();logSecNow('Family member added');toast('Family member added ✓');
+}
+function editMember(id){const m=DB.members.find(x=>x.id===id);if(!m)return;
+  openModal(`<h3>Edit member</h3><form onsubmit="updMember(event,'${id}')">
+  ${f('Name',`<input id="fm-name" value="${escAttr(m.name)}" required>`)}
+  ${f('Role',`<select id="fm-role"><option ${m.role==='Partner'?'selected':''}>Partner</option><option ${m.role==='Child'?'selected':''}>Child</option><option ${m.role==='Dependent'?'selected':''}>Dependent</option><option ${m.role==='Parent'?'selected':''}>Parent</option><option ${m.role==='Other'?'selected':''}>Other</option></select>`)}
+  <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);}
+function updMember(e,id){e.preventDefault();const m=DB.members.find(x=>x.id===id);m.name=v('fm-name');m.role=v('fm-role');persist();closeModal();refreshAll();}
+function toggleMemberMask(id,val){const m=DB.members.find(x=>x.id===id);if(m)m.masked=val;persist();refreshAll();toast(val?'Amounts hidden for '+m.name:'Amounts visible for '+m.name);}
+function toggleFamilyView(val){DB.settings.familyView=val;persist();refreshAll();toast(val?'Family view ON — private entries hidden':'Family view OFF — showing everything');}
+function memberOptions(sel){
+  let o='<option value="">— Whole household —</option>';
+  DB.members.forEach(m=>o+=`<option value="${m.id}" ${sel===m.id?'selected':''}>${escAttr(m.name)}</option>`);
+  return o;
+}
+
+/* ---------- FINANCIAL HEALTH SCORE ---------- */
+function computeScore(sim){
+  sim=sim||{};
+  const inc=sim.income!=null?sim.income:sumInBase(thisMonthEntries(),'income');
+  const exp=sim.expense!=null?sim.expense:sumInBase(thisMonthEntries(),'expense');
+  const avgInc=Math.max(inc,sumInBase(lastNMonths(6).flatMap(m=>DB.entries.filter(e=>e.date.startsWith(ymOf(m)))),'income')/6||inc);
+  const parts=[];
+  // 1. Savings rate (30)
+  const rate=inc>0?(inc-exp)/inc*100:0;
+  const sRate=Math.max(0,Math.min(30,rate*1.5));
+  parts.push({name:'Savings rate',score:sRate,max:30,advice:rate>=20?'Excellent — you keep '+rate.toFixed(0)+'% of what you earn.':rate>=10?'Decent, but aim to keep 20%+ of income.':'You are spending most of what you earn — trim one category this month.'});
+  // 2. Budget adherence (20)
+  const ym=ymOf(new Date());
+  const bs=DB.budgets.filter(b=>b.month===ym);
+  let sBud=10; // neutral when no budgets
+  let budAdvice='Set category budgets to unlock this score fully.';
+  if(bs.length){
+    const spentBy={};thisMonthEntries().filter(e=>e.type==='expense').forEach(e=>spentBy[e.category]=(spentBy[e.category]||0)+toBase(e.amount,e.cur));
+    const ok=bs.filter(b=>(spentBy[b.category]||0)<=b.limit).length;
+    sBud=ok/bs.length*20;
+    budAdvice=ok===bs.length?'Every budget on track — impressive discipline.':ok+' of '+bs.length+' budgets kept. Rebalance the overspent ones.';
+  }
+  parts.push({name:'Budget adherence',score:sBud,max:20,advice:budAdvice});
+  // 3. Debt load (20) — EMI vs income
+  const emi=DB.loans.reduce((a,l)=>a+l.emi,0);
+  const emiR=inc>0?emi/inc:0;
+  const sDebt=emiR<=0.15?20:Math.max(0,20-(emiR-0.15)*57); // 0 at ~50%
+  parts.push({name:'Debt load',score:sDebt,max:20,advice:!DB.loans.length?'Debt-free 🎉':emiR<=0.35?'EMIs take '+(emiR*100).toFixed(0)+'% of income — within the healthy 35% line.':'⚠️ EMIs eat '+(emiR*100).toFixed(0)+'% of income — above the 35% guideline. Prioritise the highest-rate loan.'});
+  // 4. Emergency fund (15)
+  const liquid=DB.assets.filter(a=>/bank|investment|cash|saving/i.test(a.category+a.name)).reduce((s,a)=>s+a.value,0);
+  const avgExp6=sumInBase(lastNMonths(6).flatMap(m=>DB.entries.filter(e=>e.date.startsWith(ymOf(m)))),'expense')/6||exp;
+  const monthsCov=avgExp6>0?liquid/avgExp6:6;
+  const sEm=Math.min(15,monthsCov/6*15);
+  parts.push({name:'Emergency fund',score:sEm,max:15,advice:monthsCov>=6?'Fully covered — '+monthsCov.toFixed(1)+' months of expenses banked.':'Covers '+monthsCov.toFixed(1)+' of 6 recommended months. Keep building.'});
+  // 5. Goal progress (15)
+  let sGoal=7.5,gAdvice='Set savings goals to track momentum.';
+  if(DB.goals.length){
+    const prog=DB.goals.reduce((a,g)=>a+Math.min(1,(g.target?g.saved/g.target:0)),0)/DB.goals.length;
+    sGoal=prog*15;
+    gAdvice='Goals are on average '+Math.round(prog*100)+'% funded.'+(prog>=0.5?' Great momentum.':' Steady contributions will compound.');
+  }
+  parts.push({name:'Goal progress',score:sGoal,max:15,advice:gAdvice});
+  const total=Math.round(parts.reduce((a,p)=>a+p.score,0));
+  return {total,parts};
+}
+function scoreGrade(s){return s>=85?['Excellent','A','pos']:s>=70?['Good','B','bluetxt']:s>=55?['Fair','C','goldtxt']:['Needs work','D','neg'];}
+function recordScore(){
+  const ym=ymOf(new Date());
+  const sc=computeScore().total;
+  const ex=DB.scoreHistory.find(h=>h.month===ym);
+  if(ex)ex.score=sc;else DB.scoreHistory.push({month:ym,score:sc});
+  DB.scoreHistory.sort((a,b)=>a.month.localeCompare(b.month));
+  return sc;
+}
+let LAST_SCORE=null;
+function renderScore(){
+  recordScore();persist();
+  const {total,parts}=computeScore();
+  LAST_SCORE={total,parts};
+  const [gLabel,gGrade,gClass]=scoreGrade(total);
+  // semicircle gauge
+  const R=80,cx=100,cy=95;
+  const ang=-180+total/100*180;
+  const rad=a=>(a)*Math.PI/180;
+  const arc=(a1,a2,color,w)=>{const x1=cx+R*Math.cos(rad(a1)),y1=cy+R*Math.sin(rad(a1)),x2=cx+R*Math.cos(rad(a2)),y2=cy+R*Math.sin(rad(a2));
+    return `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} A${R},${R} 0 ${(a2-a1)>180?1:0} 1 ${x2.toFixed(1)},${y2.toFixed(1)}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round"/>`;};
+  const col=total>=85?'#10b981':total>=70?'#5b8cff':total>=55?'#d4af37':'#ef4444';
+  document.getElementById('score-gauge').innerHTML=
+    `<svg width="200" height="115" viewBox="0 0 200 115">
+      ${arc(180,360,'#243044',14)}
+      ${total>0?arc(180,ang,col,14):''}
+      <text x="100" y="82" text-anchor="middle" font-size="34" font-weight="700" fill="var(--text)">${total}</text>
+      <text x="100" y="102" text-anchor="middle" font-size="11" fill="var(--muted)">out of 100</text>
+    </svg>`;
+  document.getElementById('score-grade').innerHTML=`<span class="${gClass}" style="font-size:22px;font-weight:800">${gGrade}</span> <span style="font-size:16px;color:var(--muted)">${gLabel}</span>`;
+  document.getElementById('score-parts').innerHTML=parts.map(p=>{
+    const pc=p.score/p.max*100;
+    const c=pc>=75?'var(--green)':pc>=45?'var(--gold)':'var(--red)';
+    return `<div style="margin-bottom:16px"><div class="bar-row"><b>${p.name}</b><span>${Math.round(p.score)} / ${p.max}</span></div>
+      <div class="progress"><div style="width:${pc}%;background:${c}"></div></div>
+      <div style="font-size:13px;color:var(--muted);margin-top:3px;line-height:1.5">${p.advice}</div></div>`;
+  }).join('');
+  // history
+  const h=document.getElementById('score-history');
+  h.innerHTML=DB.scoreHistory.length>1?
+    '<b style="font-size:13px">Score history</b>'+table(['Month','Score'],DB.scoreHistory.slice(-6).map(x=>[x.month,'<b>'+x.score+'</b> '+scoreGrade(x.score)[0]])):
+    '<div class="empty" style="padding:16px">Your score history will build here month over month.</div>';
+}
+
+/* ---------- WHAT-IF SIMULATOR ---------- */
+function renderSimulator(){
+  const inc=thisMonthEntries().filter(e=>e.type==='income').reduce((a,e)=>a+toBase(e.amount,e.cur),0);
+  const exp=thisMonthEntries().filter(e=>e.type==='expense').reduce((a,e)=>a+toBase(e.amount,e.cur),0);
+  if(!document.getElementById('sim-inc').dataset.init){
+    document.getElementById('sim-inc').dataset.init=1;
+    document.getElementById('sim-exp-cut').value=0;document.getElementById('sim-extra-save').value=0;
+  }
+  const dInc=+document.getElementById('sim-inc').value, dCut=+document.getElementById('sim-exp-cut').value, extra=+document.getElementById('sim-extra-save').value;
+  const stopInc=document.getElementById('sim-stop-inc').checked;
+  let nInc=inc*(1+dInc/100), nExp=exp*(1-dCut/100)-extra;
+  if(stopInc)nInc*=0.35; // assume secondary income stops, keep ~35%
+  document.getElementById('sim-inc-lbl').textContent=(dInc>=0?'+':'')+dInc+'% → '+fmt(nInc);
+  document.getElementById('sim-exp-lbl').textContent=dCut+'% cut'+(extra?', −'+fmt(extra)+' flat':'')+' → '+fmt(Math.max(nExp,0));
+  const surplus=nInc-nExp;
+  const curSurplus=inc-exp;
+  const yrSave=Math.max(surplus,0)*12;
+  // projected score
+  const simSc=computeScore({income:nInc,expense:nExp}).total;
+  document.getElementById('sim-out').innerHTML=
+    kpi('New monthly surplus',fmt(surplus),surplus>=curSurplus?'pos':'neg',(curSurplus>=0?'was ':'was ')+fmt(curSurplus))+
+    kpi('Projected yearly savings',fmt(yrSave),'goldtxt')+
+    kpi('Health score impact',simSc.total+' / 100',simSc.total>=LAST_SCORE?.total?'pos':'neg',(simSc.total-LAST_SCORE.total>=0?'+':'')+(simSc.total-LAST_SCORE.total)+' pts vs today');
+  // goal acceleration
+  const gl=document.getElementById('sim-goals');
+  gl.innerHTML=DB.goals.length?DB.goals.map(g=>{
+    const rem=g.target-g.saved;
+    const nowM=g.monthly>0?rem/g.monthly:Infinity;
+    const newMonthly=(g.monthly||0)+Math.max(surplus-curSurplus,0);
+    const newM=newMonthly>0?rem/newMonthly:Infinity;
+    return `<div class="set-row"><div class="t">${escAttr(g.name)}</div><div style="text-align:right;font-size:13px;color:var(--muted)">at current pace: ${isFinite(nowM)?nowM.toFixed(1):'∞'} mo<br><span class="pos">with changes: ${isFinite(newM)?newM.toFixed(1):'∞'} mo${newM<nowM?' ⚡':''}</span></div></div>`;
+  }).join(''):'<div class="empty">Add goals to see how changes accelerate them.</div>';
+}
+
+/* ---------- MONEY CALENDAR ---------- */
+let CAL_MONTH=new Date();
+function calShift(d){CAL_MONTH.setMonth(CAL_MONTH.getMonth()+d);renderCalendar();}
+function renderCalendar(){
+  const y=CAL_MONTH.getFullYear(),m=CAL_MONTH.getMonth();
+  const first=new Date(y,m,1),daysInMonth=new Date(y,m+1,0).getDate();
+  const startDow=(first.getDay()+6)%7; // Monday-first
+  const ym=ymOf(first);
+  document.getElementById('cal-title').textContent=first.toLocaleString('en',{month:'long',year:'numeric'});
+  // events per day
+  const ev={};
+  const add=(day,type,label,amt)=>{(ev[day]=ev[day]||[]).push({type,label,amt});};
+  visEntries().forEach(e=>{
+    if(e.date.startsWith(ym)){add(+e.date.slice(8,10),e.type,e.category,toBase(e.amount,e.cur));}
+  });
+  DB.recurring.filter(r=>r.status==='Active'&&r.next&&r.next.startsWith(ym)).forEach(r=>add(+r.next.slice(8,10),'recurring',r.name,r.amount));
+  DB.insurance.filter(i=>i.due&&i.due.startsWith(ym)).forEach(i=>add(+i.due.slice(8,10),'due',i.policy,i.premium));
+  DB.documents.filter(d=>d.expiry&&d.expiry.startsWith(ym)).forEach(d=>add(+d.expiry.slice(8,10),'due',d.doc,null));
+  const todayIso=isoOf(new Date());
+  let cells='';
+  for(let i=0;i<startDow;i++)cells+='<div class="cal-day empty-day"></div>';
+  for(let d=1;d<=daysInMonth;d++){
+    const iso=ym+'-'+String(d).padStart(2,'0');
+    const list=ev[d]||[];
+    const inc=list.filter(x=>x.type==='income').reduce((a,x)=>a+x.amt,0);
+    const exp=list.filter(x=>x.type!=='income'&&x.amt!=null).reduce((a,x)=>a+x.amt,0);
+    cells+=`<div class="cal-day ${iso===todayIso?'today':''}">
+      <div class="cal-num">${d}</div>
+      ${inc?`<div class="cal-ev pos">+${fmt(inc)}</div>`:''}
+      ${exp?`<div class="cal-ev neg">−${fmt(exp)}</div>`:''}
+      ${list.filter(x=>x.type==='recurring'||x.type==='due').slice(0,2).map(x=>`<div class="cal-ev goldtxt" title="${escAttr(x.label)}">⏰ ${escAttr(x.label)}</div>`).join('')}
+    </div>`;
+  }
+  document.getElementById('cal-grid').innerHTML=cells;
+  document.getElementById('cal-legend').innerHTML='<span><i style="background:var(--green)"></i>Income</span><span><i style="background:var(--red)"></i>Spending</span><span><i style="background:var(--gold)"></i>Bills & renewals</span>';
+}
+
+/* ---------- STREAKS & MILESTONES ---------- */
+function renderStreaks(){
+  // under-budget / positive months over last 6
+  const months=lastNMonths(6);
+  let posStreak=0,budStreak=0,posList=[],budList=[];
+  [...months].reverse().forEach(m=>{
+    const es=DB.entries.filter(e=>e.date.startsWith(ymOf(m)));
+    const inc=sumInBase(es,'income'),exp=sumInBase(es,'expense');
+    const bs=DB.budgets.filter(b=>b.month===ymOf(m));
+    const spentBy={};es.filter(e=>e.type==='expense').forEach(e=>spentBy[e.category]=(spentBy[e.category]||0)+toBase(e.amount,e.cur));
+    const budOk=bs.length&&bs.every(b=>(spentBy[b.category]||0)<=b.limit);
+    if(inc-exp>0){posStreak++;posList.push(ymOf(m));}else posStreak=-99;
+    if(budOk){budStreak++;budList.push(ymOf(m));}else budStreak=-99;
+  });
+  posStreak=Math.max(posStreak,0);budStreak=Math.max(budStreak,0);
+  // lifetime saved
+  const saved=DB.entries.reduce((a,e)=>a+(e.type==='income'?1:-1)*toBase(e.amount,e.cur),0);
+  const milestones=[
+    {n:'Getting started',d:'Log your first entry',done:DB.entries.length>0},
+    {n:'First saver',d:fmt(1000)+' cumulative saved',done:saved>=1000},
+    {n:'Five figures',d:fmt(10000)+' cumulative saved',done:saved>=10000},
+    {n:'Quarter master',d:fmt(25000)+' cumulative saved',done:saved>=25000},
+    {n:'Half way rich',d:fmt(50000)+' cumulative saved',done:saved>=50000},
+    {n:'Century club',d:fmt(100000)+' cumulative saved',done:saved>=100000},
+    {n:'Budget boss',d:'Under budget 3 months straight',done:budStreak>=3},
+    {n:'Positive machine',d:'4+ months in the black',done:posStreak>=4},
+    {n:'Goal getter',d:'Complete a savings goal',done:DB.goals.some(g=>g.target&&g.saved>=g.target)},
+    {n:'Debt slayer',d:'Clear a loan completely',done:DB.loans.length>0&&DB.loans.every(l=>l.outstanding<=0)},
+  ];
+  const done=milestones.filter(x=>x.done).length;
+  document.getElementById('streak-summary').innerHTML=
+    kpi('Positive-month streak',posStreak?posStreak+' 🔥':'—','pos')+
+    kpi('Under-budget streak',budStreak?budStreak+' ✓':'—','bluetxt')+
+    kpi('Badges earned',done+' / '+milestones.length,'goldtxt')+
+    kpi('Lifetime saved',fmt(saved),'pos');
+  document.getElementById('streak-badges').innerHTML=milestones.map(x=>
+    `<div class="badge ${x.done?'earned':''}"><div class="badge-ic">${x.done?'🏆':'🔒'}</div><b>${x.n}</b><span>${x.d}</span></div>`).join('');
+}
+
+/* ---------- SUBSCRIPTION AUDIT ---------- */
+function renderSubAudit(){
+  const el=document.getElementById('sub-audit');if(!el)return;
+  const cutoff=new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+  const stale=DB.recurring.filter(r=>r.status==='Active'&&r.next>cutoff&&!DB.entries.some(e=>e.subId===r.id));
+  el.innerHTML=stale.length?('<h3 style="margin-bottom:10px">🔍 Subscription audit</h3>'+stale.map(r=>
+    `<div class="set-row"><div><div class="t">${escAttr(r.name)}</div><div class="d">No charge posted in 60+ days — still using it? ${fmt(r.amount)}/${r.freq}.</div></div>
+     <div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:7px 14px;font-size:13px" onclick="keepSub('${r.id}')">Keep</button><button class="btn btn-danger" style="padding:7px 14px;font-size:13px" onclick="cancelSub('${r.id}')">Cancel it</button></div></div>`).join('')):'';
+}
+function keepSub(id){const r=DB.recurring.find(x=>x.id===id);if(r)r.audited=true;persist();refreshAll();}
+function cancelSub(id){const r=DB.recurring.find(x=>x.id===id);if(r){r.status='Cancelled';persist();refreshAll();toast(r.name+' cancelled 💸');}}
+
+/* ---------- WEEKLY DIGEST ---------- */
+function renderDigest(){
+  const el=document.getElementById('digest-card');if(!el)return;
+  const wkStart=new Date(Date.now()-7*86400000);
+  const wkIso=isoOf(wkStart);
+  const thisWk=visEntries().filter(e=>e.type==='expense'&&e.date>=wkIso&&e.date<=isoOf(new Date()));
+  const prevWk=visEntries().filter(e=>e.type==='expense'&&e.date>=isoOf(new Date(Date.now()-14*86400000))&&e.date<wkIso);
+  const tSum=thisWk.reduce((a,e)=>a+toBase(e.amount,e.cur),0), pSum=prevWk.reduce((a,e)=>a+toBase(e.amount,e.cur),0);
+  const diff=pSum?tSum-pSum:tSum;
+  // upcoming renewals
+  const lead=DB.settings.leadDays;
+  const upcoming=[...DB.insurance.map(i=>({n:i.policy,d:i.due,a:i.premium})),...DB.recurring.filter(r=>r.status==='Active').map(r=>({n:r.name,d:r.next,a:r.amount})),...DB.documents.map(d=>({n:d.doc,d:d.expiry,a:null}))].filter(x=>x.d&&x.d>=isoOf(new Date())&&x.d<=isoOf(new Date(Date.now()+lead*86400000))).sort((a,b)=>a.d.localeCompare(b.d)).slice(0,4);
+  // score movement
+  const hist=DB.scoreHistory;
+  const move=hist.length>=2?hist[hist.length-1].score-hist[hist.length-2].score:null;
+  el.innerHTML=`<h3>💬 Your week in money</h3>
+    <ul style="list-style:none;font-size:14px;line-height:2;color:var(--text)">
+      <li>🧾 Spent <b>${fmt(tSum)}</b> in the last 7 days ${pSum?(diff<=0?`<span class="pos">↓ ${fmt(Math.abs(diff))} less than the week before</span>`:`<span class="neg">↑ ${fmt(diff)} more than the week before</span>`):(prevWk.length?'':'— first tracked week')}.</li>
+      ${upcoming.length?`<li>⏰ ${upcoming.length} renewal${upcoming.length>1?'s':''} coming within ${lead} days: ${upcoming.map(x=>`<b>${escAttr(x.n)}</b> (${x.d}${x.a!=null?', '+fmt(x.a):''})`).join(' · ')}.</li>`:'<li>⏰ No renewals due soon — smooth sailing.</li>'}
+      ${move!=null?`<li>💚 Health score ${move>=0?`<span class="pos">up ${move}</span>`:`<span class="neg">down ${Math.abs(move)}</span>`} since last month — now <b>${hist[hist.length-1].score}/100</b>.</li>`:''}
+      ${DB.members.length?`<li>👨‍👩‍👧 Family view is ${DB.settings.familyView?'ON (private entries hidden)':'OFF'} · ${DB.members.length} member${DB.members.length>1?'s':''} tracked.</li>`:''}
+    </ul>`;
+}
+
 
 /* ---------- profile ---------- */
 function renderProfile(){
