@@ -745,10 +745,74 @@ function saveLead(){DB.settings.leadDays=Math.max(1,+v('lead-days'));persist();r
 
 /* ---------- export / import ---------- */
 function exportData(){
-  const blob=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download=`budgetelle-export-${isoOf(new Date())}.json`;a.click();
-  toast('Exported decrypted JSON — keep it safe!');
+  const cur=DB.settings.baseCur;
+  const ym=ymOf(new Date());
+  const tm=thisMonthEntries();
+  const inc=sumInBase(tm,'income'),exp=sumInBase(tm,'expense');
+  const nw=DB.snapshots[DB.snapshots.length-1];
+
+  // Sheet 1 — Dashboard report
+  const dash=[['Budgetelle Report','Generated '+new Date().toLocaleString()],['Base currency',cur],[],
+    ['THIS MONTH','','' ],['Metric','Amount ('+cur+')','Notes'],
+    ['Income',+inc.toFixed(2),''],['Expenses',+exp.toFixed(2),''],
+    ['Net savings',+(inc-exp).toFixed(2),inc>0?(( (inc-exp)/inc*100).toFixed(1)+'% savings rate'):''],
+    ['Subscriptions',+tm.filter(e=>e.type==='expense'&&e.subId).reduce((a,e)=>a+toBase(e.amount,e.cur),0).toFixed(2),'Posted from Subscriptions'],
+    ['Net worth',nw?+(nw.assets-nw.liabilities).toFixed(2):'',nw?('Assets '+fmt(nw.assets)+' − Liabilities '+fmt(nw.liabilities)):'No snapshot yet'],[],
+    ['LAST 6 MONTHS','Income','Expenses']];
+  lastNMonths(6).forEach(m=>{
+    const es=DB.entries.filter(e=>e.date.startsWith(ymOf(m)));
+    dash.push([m.toLocaleString('en',{month:'long',year:'numeric'}),+sumInBase(es,'income').toFixed(2),+sumInBase(es,'expense').toFixed(2)]);
+  });
+
+  // Sheet 2 — Income
+  const incRows=[['Date','Category','Amount','Currency','Notes'],
+    ...[...DB.entries].filter(e=>e.type==='income').sort((a,b)=>b.date.localeCompare(a.date))
+    .map(e=>[e.date,e.category,+e.amount.toFixed(2),e.cur,e.notes||''])];
+  // Sheet 3 — Expenses
+  const expRows=[['Date','Category','Amount','Currency','Source','Notes'],
+    ...[...DB.entries].filter(e=>e.type==='expense').sort((a,b)=>b.date.localeCompare(a.date))
+    .map(e=>[e.date,e.category,+e.amount.toFixed(2),e.cur,e.subId?'Subscription':'Manual/Receipt',e.notes||''])];
+  // Sheet 4 — Budgets vs actual
+  const spentBy={};thisMonthEntries().filter(e=>e.type==='expense').forEach(e=>spentBy[e.category]=(spentBy[e.category]||0)+toBase(e.amount,e.cur));
+  const budRows=[['Month','Category','Budgeted','Spent','Remaining','% Used'],
+    ...DB.budgets.map(b=>{const sp=spentBy[b.category]||0;
+      return [b.month,b.category,+b.limit.toFixed(2),+sp.toFixed(2),+(b.limit-sp).toFixed(2),(sp/b.limit*100||0).toFixed(0)+'%'];})];
+  if(!DB.budgets.length)budRows.push(['—','No budgets set','','','','']);
+  // Sheet 5 — Net Worth
+  const nwRows=[['Month','Assets','Liabilities','Net','Notes'],
+    ...[...DB.snapshots].sort((a,b)=>b.month.localeCompare(a.month))
+    .map(s=>[s.month,+s.assets.toFixed(2),+s.liabilities.toFixed(2),+(s.assets-s.liabilities).toFixed(2),s.notes||''])];
+  // Sheet 6 — What I Own
+  const ownRows=[['Name','Category','Value','Notes'],
+    ...DB.assets.map(a=>[a.name,a.category,+a.value.toFixed(2),a.notes||'']),[],
+    ['TOTAL','',+DB.assets.reduce((s,a)=>s+a.value,0).toFixed(2),'']];
+  // Sheet 7 — Goals
+  const goalRows=[['Goal','Target','Saved','Monthly','By date','% Funded','Months to go'],
+    ...DB.goals.map(g=>[g.name,+g.target.toFixed(2),+g.saved.toFixed(2),+g.monthly.toFixed(2),g.byDate,
+      Math.round(g.saved/g.target*100)+'%',g.monthly>0?(Math.max(0,(g.target-g.saved)/g.monthly)).toFixed(1):'—'])];
+  if(!DB.goals.length)goalRows.push(['No goals set','','','','','','']);
+  // Sheet 8 — Subscriptions
+  const subRows=[['Name','Category','Amount','Frequency','Next due','Status','Monthly equivalent'],
+    ...DB.recurring.map(r=>[r.name,r.category,+r.amount.toFixed(2),r.freq,r.next,r.status,+monthlyEquiv(r).toFixed(2)])];
+  if(!DB.recurring.length)subRows.push(['None','','','','','','']);
+  // Sheet 9 — Loans
+  const loanRows=[['Loan','Lender','Principal','Rate %','EMI','Outstanding','Started'],
+    ...DB.loans.map(l=>[l.name,l.lender,+l.principal.toFixed(2),l.rate,+l.emi.toFixed(2),+l.outstanding.toFixed(2),l.started])];
+  if(!DB.loans.length)loanRows.push(['Debt-free 🎉','','','','','','']);
+
+  const sheets=[
+    {name:'Dashboard Report',rows:dash},
+    {name:'Income',rows:incRows},
+    {name:'Expenses',rows:expRows},
+    {name:'Budgets',rows:budRows},
+    {name:'Net Worth',rows:nwRows},
+    {name:'What I Own',rows:ownRows},
+    {name:'Goals',rows:goalRows},
+    {name:'Subscriptions',rows:subRows},
+    {name:'Loans',rows:loanRows},
+  ];
+  downloadWorkbook(new Blob([xlsxSheets(sheets)],{type:'application/vnd.ms-excel'}),`budgetelle-report-${isoOf(new Date())}.xls`);
+  toast('Excel report downloaded ✓');
 }
 function importData(ev){
   const file=ev.target.files[0];if(!file)return;

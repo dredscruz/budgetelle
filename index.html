@@ -492,8 +492,8 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
     <form class="inline mt"><div class="field"><label>Lead time (days)</label><input id="lead-days" type="number" min="1" max="90" value="30"></div><button class="btn btn-gold" onclick="saveLead()">Save</button></form>
   </div>
   <div class="card"><h3>Your data</h3>
-    <div class="set-row"><div><div class="t">Export everything</div><div class="d">Download a decrypted JSON of all your data (GDPR portability).</div></div>
-      <button class="btn btn-gold" onclick="exportData()">Export JSON</button></div>
+    <div class="set-row"><div><div class="t">Export Excel report</div><div class="d">Download a multi-sheet workbook of all your reports — dashboard, income, expenses, budgets and more.</div></div>
+      <button class="btn btn-gold" onclick="exportData()">Download .xls</button></div>
     <div class="set-row"><div><div class="t">Import backup</div><div class="d">Restore from a previous export file.</div></div>
       <input type="file" id="import-file" accept=".json" style="width:auto" onchange="importData(event)"></div>
   </div>
@@ -507,6 +507,7 @@ form.inline .field{margin-bottom:0;flex:1;min-width:130px}
 <div class="modal-back" id="modal-back"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 
+<script src="xlsx.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
