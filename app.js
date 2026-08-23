@@ -932,7 +932,7 @@ function qcDictate(target){
   };
   qcRecog.start();
 }
-/* receipt photo — on-device OCR via Tesseract.js, then auto-post */
+/* receipt photo — on-device OCR via Tesseract.js; each line item categorized, reviewed before posting */
 async function scanReceipt(input){
   const file=input.files[0];if(!file)return;
   const st=document.getElementById('qc-status');
@@ -942,24 +942,75 @@ async function scanReceipt(input){
     const imgURL=URL.createObjectURL(file);
     const {data}=await window.Tesseract.recognize(imgURL,'eng');
     URL.revokeObjectURL(imgURL);
-    // total heuristics: prefer lines with TOTAL/AMOUNT DUE/GRAND TOTAL; fall back to largest currency-looking number
-    const lines=data.text.split('\n').map(l=>l.trim()).filter(Boolean);
-    let amount=0;
-    for(const l of lines){if(/total|amount due|grand/i.test(l)&&!/subtotal|change/i.test(l)){const m=l.match(/([\d,]+\.\d{2})/);if(m)amount=Math.max(amount,parseFloat(m[1].replace(/,/g,'')));}}
-    if(!amount){for(const l of lines){const m=l.match(/(?:AED|USD|\$|€|£)?\s?(\d{1,4}(?:[,.]\d{3})*\.\d{2})/);if(m){const v=parseFloat(m[1].replace(/,/g,''));if(v>amount)amount=v;}}}
-    if(!amount){st.textContent='Couldn\'t read a total from that photo — enter it manually with "+ Add expense".';input.value='';return;}
-    // merchant/category from first meaningful line or keywords
-    const whole=data.text.toLowerCase();
-    let cat='Other',best=0;
-    for(const[c,words]of QC_KEYWORDS){let h=0;words.forEach(w=>{if(whole.includes(w))h++;});if(h>best){best=h;cat=c;}}
-    const merchant=lines.find(l=>/[a-z]{3,}/i.test(l))||'Receipt';
-    DB.entries.push({id:uid(),date:isoOf(new Date()),type:'expense',category:cat,amount,cur:DB.settings.baseCur,notes:merchant.slice(0,40)+' (receipt)',subId:null});
-    persist();refreshAll();input.value='';
-    st.innerHTML=`<span class="pos">✓ Receipt scanned: ${fmt(amount)} → <b>${cat}</b></span>`;
+    const lines=data.text.split('\n').map(l=>l.trim()).filter(l=>l.length>2);
+    // parse item lines: "name .... 12.50" — skip headers/footers/totals
+    const items=[];
+    for(const l of lines){
+      if(/total|subtotal|amount due|change|cash|card|visa|master|receipt|invoice|thank|vat|tax|store|branch|tel|date|cashier|balance|points/i.test(l))continue;
+      const m=l.match(/^(.*?)[\s.]*?(?:AED|USD|\$|€|£)?\s?(\d{1,4}(?:[,.]\d{3})*\.\d{2})$/);
+      if(m&&m[1].replace(/[^a-z]/gi,'').length>=3){
+        items.push({name:m[1].replace(/[.\-–_]+$/,'').trim(),price:parseFloat(m[2].replace(/,/g,''))});
+      }
+    }
+    // de-dupe identical name+price (OCR often doubles lines)
+    const seen=new Set();
+    const unique=items.filter(i=>{const k=i.name.toLowerCase()+'|'+i.price;if(seen.has(k))return false;seen.add(k);return true;});
+    if(!unique.length){
+      // fallback: single-total mode like before
+      let amount=0;
+      for(const l of lines){if(/total|amount due/i.test(l)&&!/subtotal/i.test(l)){const m=l.match(/([\d,]+\.\d{2})/);if(m)amount=Math.max(amount,parseFloat(m[1].replace(/,/g,'')));}}
+      if(!amount){st.textContent='Couldn\'t read that receipt — try a clearer photo or enter manually.';input.value='';return;}
+      const whole=data.text.toLowerCase();let cat='Other',best=0;
+      for(const[c,words]of QC_KEYWORDS){let h=0;words.forEach(w=>{if(whole.includes(w))h++;});if(h>best){best=h;cat=c;}}
+      DB.entries.push({id:uid(),date:isoOf(new Date()),type:'expense',category:cat,amount,cur:DB.settings.baseCur,notes:'Receipt',subId:null});
+      persist();refreshAll();input.value='';
+      st.innerHTML=`<span class="pos">✓ Receipt scanned: ${fmt(amount)} → <b>${cat}</b></span>`;
+      return;
+    }
+    // categorize each item and stage for review
+    QC_STAGED=unique.map(i=>{
+      const t=' '+i.name.toLowerCase()+' ';
+      let cat=null,best=0;
+      for(const[c,words]of QC_KEYWORDS){let h=0;words.forEach(w=>{if(t.includes(w))h++;});if(h>best){best=h;cat=c;}}
+      return {name:i.name,price:i.price,category:cat||'Groceries'};
+    });
+    input.value='';
+    renderStaged();
+    st.innerHTML='<span class="bluetxt">Review the items below, adjust any category, then post.</span>';
   }catch{
     st.textContent='Scan failed — you can still add it manually.';
     input.value='';
   }
+}
+let QC_STAGED=[];
+const QC_CATS=CATS_EXP;
+function renderStaged(){
+  const st=document.getElementById('qc-status');
+  let box=document.getElementById('qc-staged');
+  if(!QC_STAGED.length){box.remove();refreshAll();return;}
+  if(!box){
+    box=document.createElement('div');box.id='qc-staged';box.className='card';box.style.marginTop='14px';
+    document.getElementById('quick-capture').after(box);
+  }
+  box.innerHTML=`<h3>🧾 Receipt items — <span class="goldtxt">${fmt(QC_STAGED.reduce((a,i)=>a+i.price,0))} total</span></h3>
+  ${QC_STAGED.map((i,idx)=>`<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+    <input value="${escAttr(i.name)}" data-idx="${idx}" class="stage-name" style="flex:3;min-width:140px" oninput="QC_STAGED[${idx}].name=this.value">
+    <select data-idx="${idx}" class="stage-cat" style="flex:1.5;min-width:130px" onchange="QC_STAGED[${idx}].category=this.value">${catOptions(QC_CATS,i.category)}</select>
+    <input type="number" step="0.01" value="${i.price}" style="flex:1;min-width:90px" oninput="QC_STAGED[${idx}].price=+this.value||0">
+    <button class="btn btn-danger" style="padding:6px 12px;font-size:12px" onclick="QC_STAGED.splice(${idx},1);renderStaged()">✕</button>
+  </div>`).join('')}
+  <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+    <button class="btn btn-ghost" onclick="QC_STAGED=[];renderStaged()">Discard</button>
+    <button class="btn btn-gold" onclick="postStaged()">Post ${QC_STAGED.length} item${QC_STAGED.length>1?'s':''}</button>
+  </div>`;
+}
+function postStaged(){
+  const date=isoOf(new Date());
+  QC_STAGED.forEach(i=>DB.entries.push({id:uid(),date,type:'expense',category:i.category,amount:i.price,cur:DB.settings.baseCur,notes:i.name+' (receipt)',subId:null}));
+  QC_STAGED=[];
+  document.getElementById('qc-staged')?.remove();
+  document.getElementById('qc-status').innerHTML='<span class="pos">✓ All items posted.</span>';
+  persist();refreshAll();toast('Receipt items posted ✓');
 }
 
 /* ---------- ADVISOR (local rules engine — no AI server, privacy-first) ---------- */
