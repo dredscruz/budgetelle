@@ -218,6 +218,18 @@ function toBase(amount, cur){
   const r = DB.settings.rates[cur];
   return r ? amount*r : amount;
 }
+function convAmt(amount, from, to){ /* convert any currency to any other, via base */
+  if(from===to) return amount;
+  const baseAmt = toBase(amount, from);
+  if(to===DB.settings.baseCur) return baseAmt;
+  const r = DB.settings.rates[to];
+  return r ? baseAmt/r : baseAmt;
+}
+function domCur(list){ /* the currency most of these entries were entered in */
+  if(!list.length) return DB.settings.baseCur;
+  const c={}; list.forEach(e=>{ c[e.cur||DB.settings.baseCur]=(c[e.cur||DB.settings.baseCur]||0)+1; });
+  return Object.entries(c).sort((a,b)=>b[1]-a[1])[0][0];
+}
 
 /* ---------- app shell ---------- */
 function enterApp(){
@@ -375,14 +387,16 @@ function renderDonut(el,byCat,totalLabel){
 /* ---------- income & expenses ---------- */
 function renderIncome(){
   const tm=thisMonthEntries().filter(e=>e.type==='income');
-  const total=sumInBase(tm,'income');
-  document.getElementById('income-kpis').innerHTML=kpi('This month',fmt(total),'pos')+kpi('Entries',tm.length)+kpi('Top source',topSrc(tm));
+  const disp=domCur(tm);
+  const total=tm.reduce((a,e)=>a+convAmt(e.amount,e.cur,disp),0);
+  document.getElementById('income-kpis').innerHTML=kpi('This month',fmt(total,disp),'pos')+kpi('Entries',tm.length)+kpi('Top source',topSrc(tm));
   document.getElementById('income-list').innerHTML=renderEntryTable(tm,'income');
 }
 function renderExpenses(){
   const tm=thisMonthEntries().filter(e=>e.type==='expense');
-  const total=sumInBase(tm,'expense');
-  document.getElementById('expense-kpis').innerHTML=kpi('This month',fmt(total),'neg')+kpi('Entries',tm.length)+kpi('Biggest',biggest(tm));
+  const disp=domCur(tm);
+  const total=tm.reduce((a,e)=>a+convAmt(e.amount,e.cur,disp),0);
+  document.getElementById('expense-kpis').innerHTML=kpi('This month',fmt(total,disp),'neg')+kpi('Entries',tm.length)+kpi('Biggest',biggest(tm));
   document.getElementById('expense-list').innerHTML=renderEntryTable(tm,'expense');
 }
 function topSrc(l){const c={};l.forEach(e=>c[e.category]=(c[e.category]||0)+e.amount);const t=Object.entries(c).sort((a,b)=>b[1]-a[1])[0];return t?t[0]:'—';}
@@ -712,17 +726,16 @@ const MEMBER_COLORS=['#2563eb','#10b981','#d4af37','#ef4444','#8b5cf6','#f97316'
 /* ---------- FAMILY ---------- */
 function renderFamily(){
   const wrap=document.getElementById('family-list');
-  wrap.innerHTML=DB.members.length?table(['','Member','Role','Privacy','',''],
+  wrap.innerHTML=DB.members.length?table(['','Member','Role','Privacy','Hide amounts','Actions'],
     DB.members.map(m=>[
       memberDot(m),
       `<b>${escAttr(m.name)}</b>`,
       escAttr(m.role||''),
       m.masked?'<span class="pill duesoon">amounts hidden</span>':'<span class="pill active">visible</span>',
-      `${m.masked?'':''}`,
-      `<label class="switch" title="Hide amounts for this member"><input type="checkbox" ${m.masked?'checked':''} onchange="toggleMemberMask('${m.id}',this.checked)"><span class="slider"></span></label>
-       <span class="tbl-actions"><button onclick="editMember('${m.id}')">Edit</button><button class="del" onclick="delItem('members','${m.id}')">Delete</button></span>`
+      `<label class="switch" title="Hide amounts for this member"><input type="checkbox" ${m.masked?'checked':''} onchange="toggleMemberMask('${m.id}',this.checked)"><span class="slider"></span></label>`,
+      `<span class="tbl-actions"><button onclick="editMember('${m.id}')">Edit</button><button class="del" onclick="delItem('members','${m.id}')">Delete</button></span>`
     ]))
-    :'<div class="empty">No family members yet. Add your partner, kids or dependents — then attribute income and spending to each person.</div>';
+    :'<div class="empty">No family members yet.<br><button class="btn btn-gold mt" style="margin-top:14px" onclick="openMember()">+ Add your first member</button></div>';
   // privacy settings
   document.getElementById('fam-view-sw').checked=!!DB.settings.familyView;
   // per-member breakdown (this month)
