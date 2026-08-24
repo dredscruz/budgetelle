@@ -66,7 +66,10 @@ module.exports = async (req, res) => {
         const existing = await kvGet('budgetelle.acct.' + em);
         if (existing) {
           const r = JSON.parse(existing);
-          if (oldHash !== r.hash) return res.status(403).json({ error: 'Old credentials required' });
+          // authorize with the old password hash OR the recovery-key hash
+          const recStored = await kvGet('budgetelle.recovhash.' + em);
+          const viaRecov = oldHash && recStored && oldHash === recStored;
+          if (!viaRecov && oldHash !== r.hash) return res.status(403).json({ error: 'Old credentials required' });
         }
         await kvSet('budgetelle.acct.' + em, JSON.stringify({ salt, hash }));
         res.status(200).json({ ok: true });
