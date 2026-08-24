@@ -1522,7 +1522,10 @@ async function doReset(){
   const em=v('fp-email').trim().toLowerCase(),p1=v('fp-pass'),p2=v('fp-pass2');
   const errEl=document.getElementById('fp-err');
   if(p1!==p2){errEl.textContent='Passwords do not match.';errEl.style.display='block';return;}
-  if(!getUsers()[em]){errEl.textContent='No vault exists for that email.';errEl.style.display='block';return;}
+  const hadLocal=!!getUsers()[em];
+  // Zero-knowledge: the old encrypted data cannot be decrypted either way, so a
+  // missing local record must NOT block the reset — just warn and proceed.
+  if(!hadLocal && !confirm('No vault record for '+em+' was found on this device. A fresh password will be set and an empty vault started here (old data cannot be decrypted). Continue?'))return;
   // wipe old encrypted blob, register new credential
   localStorage.removeItem(LS_DATA(em));
   const users=getUsers();
