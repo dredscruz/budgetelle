@@ -1582,6 +1582,8 @@ async function doReset(){
   users[em]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(em+':'+p1+':'+btoa(String.fromCharCode(...salt)))};
   localStorage.setItem(LS_USERS,JSON.stringify(users));
   await cloudResetAccount(em); // new password valid on every device
+  try{ await fetch('/api/vault',{method:'POST',headers:{'Content-Type':'application/json',
+    'bt-email':em,'bt-salt':users[em].salt,'bt-hash':users[em].hash},body:JSON.stringify({doc:''})}); }catch{} // drop stale blob
   closeModal();toast('New password set ✓ Sign in with it now.');
 }
 async function changePassword(){

@@ -41,6 +41,7 @@ module.exports = async (req, res) => {
     req.on('end', async () => {
       try {
         const { doc } = JSON.parse(body);
+        if (doc === '') { await kvSet(mine, ''); return res.status(200).json({ ok: true, cleared: true }); } // password reset: drop stale blob
         if (!doc || typeof doc !== 'string' || doc.length > 2_500_000) return res.status(400).json({ error: 'Bad doc' });
         await kvSet(mine, doc);
         res.status(200).json({ ok: true });
