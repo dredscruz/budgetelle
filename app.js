@@ -1100,8 +1100,8 @@ function migrateDB(){
   if(DB.settings.catsInc===undefined)DB.settings.catsInc=[...CATS_INC];
   if(DB.settings.catsExp===undefined)DB.settings.catsExp=[...CATS_EXP];
 }
-function incCats(){ return DB.settings.catsInc&&DB.settings.catsInc.length?DB.settings.catsInc:CATS_INC; }
-function expCats(){ return DB.settings.catsExp&&DB.settings.catsExp.length?DB.settings.catsExp:CATS_EXP; }
+function incCats(){ return (DB&&DB.settings&&DB.settings.catsInc&&DB.settings.catsInc.length)?DB.settings.catsInc:CATS_INC; }
+function expCats(){ return (DB&&DB.settings&&DB.settings.catsExp&&DB.settings.catsExp.length)?DB.settings.catsExp:CATS_EXP; }
 function renderCats(){
   const row=(name,kind)=>`<div class="set-row"><div class="t">${escAttr(name)}</div>
     <span class="tbl-actions"><button onclick="renameCat('${kind}','${escAttr(name).replace(/'/g,"\\'")}')">Rename</button><button class="del" onclick="delCat('${kind}','${escAttr(name).replace(/'/g,"\\'")}')">Delete</button></span></div>`;
@@ -2153,7 +2153,7 @@ async function scanReceipt(input){
   }
 }
 let QC_STAGED=[];
-const QC_CATS=expCats();
+const QC_CATS=()=>expCats();
 function renderStaged(){
   const st=document.getElementById('qc-status');
   let box=document.getElementById('qc-staged');
@@ -2165,7 +2165,7 @@ function renderStaged(){
   box.innerHTML=`<h3>🧾 Receipt items — <span class="goldtxt">${fmt(QC_STAGED.reduce((a,i)=>a+i.price,0))} total</span></h3>
   ${QC_STAGED.map((i,idx)=>`<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
     <input value="${escAttr(i.name)}" data-idx="${idx}" class="stage-name" style="flex:3;min-width:140px" oninput="QC_STAGED[${idx}].name=this.value">
-    <select data-idx="${idx}" class="stage-cat" style="flex:1.5;min-width:130px" onchange="QC_STAGED[${idx}].category=this.value">${catOptions(QC_CATS,i.category)}</select>
+    <select data-idx="${idx}" class="stage-cat" style="flex:1.5;min-width:130px" onchange="QC_STAGED[${idx}].category=this.value">${catOptions(QC_CATS(),i.category)}</select>
     <input type="number" step="0.01" value="${i.price}" style="flex:1;min-width:90px" oninput="QC_STAGED[${idx}].price=+this.value||0">
     <button class="btn btn-danger" style="padding:6px 12px;font-size:12px" onclick="QC_STAGED.splice(${idx},1);renderStaged()">✕</button>
   </div>`).join('')}
