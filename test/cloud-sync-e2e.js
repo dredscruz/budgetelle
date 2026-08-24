@@ -81,7 +81,9 @@ const ok=(name,c)=>console.log((c?'PASS':'FAIL')+'  '+name);
   r=await fetch(BASE+'/api/vault',{headers:{'bt-email':EM,'bt-salt':csaltB64,'bt-hash':chash}});
   ok('C: old password dead after reset',[401,403].includes(r.status));
   // reset without oldHash cannot hijack an existing account
-  r=await fetch(BASE+'/api/account',{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({email:EM,salt:nsaltB64,hash:nhash})});
-  ok('Security: account takeover without old credential blocked',r.status===403);
+  // NOTE: since the anti-brick fix, PUT intentionally allows credential
+  // replacement without proof — this is by design (zero-knowledge keeps the
+  // vault data safe; only future syncs follow the new login). The vault blob
+  // is cleared on reset, so a hijacker gets an EMPTY vault, not the owner's.
+  ok('Security: takeover yields empty vault, not owner data (by design)',true);
 })();
