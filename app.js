@@ -99,7 +99,7 @@ document.getElementById('login-form').addEventListener('submit', async e => {
         return toast(`Welcome${me.name?', '+me.name.split(' ')[0]:''} ✓`);
       }
     }catch{ /* fall through to error */ }
-    return showLoginErr(true);
+    return showLoginErr(true,'We couldn\u2019t find a vault for that email on this device. First time here? Use \u201cCreate your vault\u201d below \u2014 or check the spelling.');
   }
   const hash = await sha256hex(em + ':' + pw + ':' + atob(u.salt).split('').map(c=>c.charCodeAt(0)).join(''));
   if (hash !== u.hash) {
@@ -112,11 +112,11 @@ document.getElementById('login-form').addEventListener('submit', async e => {
         return;
       }
     }catch{}
-    return showLoginErr(true);
+    return showLoginErr(true,'That password doesn\u2019t match. Forgotten it? Tap \u201cForgot your password?\u201d below \u2014 you\u2019ll set a new one in seconds.');
   }
   await openSession(em, pw);
 });
-function showLoginErr(v){ document.getElementById('login-err').style.display = v ? 'block' : 'none'; }
+function showLoginErr(v,msg){ const el=document.getElementById('login-err'); if(msg)el.textContent=msg; el.style.display=v?'block':'none'; if(v){ const fl=document.getElementById('link-forgot'); if(fl){fl.classList.remove('nudge'); void fl.offsetWidth; fl.classList.add('nudge');} } }
 
 async function openSession(email, pass) {
   const salt = Uint8Array.from(atob(getUsers()[email].salt), c => c.charCodeAt(0));
@@ -1510,13 +1510,13 @@ function importData(ev){
 /* ---------- password recovery & change ---------- */
 function forgotPassword(){
   const em=document.getElementById('login-email').value.trim().toLowerCase();
-  openModal(`<h3>Reset your vault</h3>
-  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:18px">Budgetelle is zero-knowledge: your data is encrypted with a key derived from your password, so <b style="color:var(--text)">no one — including us — can recover it</b>. If you've lost your password, your existing data cannot be decrypted. You can reset the vault for this email and start fresh.</p>
-  ${f('Email','<input id="fp-email" type="email" value="'+escAttr(em)+'" required>')}
+  openModal(`<h3>Set a new password</h3>
+  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:18px">Budgetelle is private by design: your data is encrypted with your password, so <b style="color:var(--text)">no one — including us — can see or recover it</b>. Setting a new password starts a fresh vault on this device; if you joined a household, open your invite link again (or enter the 6-digit code) afterwards to bring the family data back.</p>
+  ${f('Email','<input id="fp-email" type="email" value="'+escAttr(em)+'" required placeholder="you@example.com">')}
   ${f('New password (min 6 characters)','<input id="fp-pass" type="password" minlength="6" required>' )}
   ${f('Confirm new password','<input id="fp-pass2" type="password" minlength="6" required>')}
   <p class="err" id="fp-err"></p>
-  <div class="actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doReset()">Reset vault</button></div>`);
+  <div class="actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doReset()">Set new password</button></div>`);
 }
 async function doReset(){
   const em=v('fp-email').trim().toLowerCase(),p1=v('fp-pass'),p2=v('fp-pass2');
@@ -1532,7 +1532,7 @@ async function doReset(){
   const salt=crypto.getRandomValues(new Uint8Array(16));
   users[em]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(em+':'+p1+':'+btoa(String.fromCharCode(...salt)))};
   localStorage.setItem(LS_USERS,JSON.stringify(users));
-  closeModal();toast('Vault reset. Sign in with your new password.');
+  closeModal();toast('New password set ✓ Sign in with it now.');
 }
 async function changePassword(){
   openModal(`<h3>Change password</h3>

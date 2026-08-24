@@ -33,6 +33,8 @@ input:focus,select:focus{outline:none;border-color:var(--gold)}
 .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
 .btn-danger{background:transparent;color:var(--red);border:1px solid var(--red)}
 .link-btn{background:none;border:none;color:var(--gold);font-size:13px;text-decoration:underline}
+@keyframes nudgePulse{0%,100%{transform:none}25%{transform:scale(1.12)}50%{transform:scale(1)}75%{transform:scale(1.08)}}
+.link-btn.nudge{animation:nudgePulse .9s ease 2;color:#ffd76a;text-decoration-thickness:2px}
 
 /* ---------- LOGIN ---------- */
 #login-screen{display:flex;min-height:100vh}
@@ -245,7 +247,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
         <button class="btn btn-gold" type="submit">Sign in</button>
       </form>
       <div class="login-links">
-        <button class="link-btn" onclick="forgotPassword()">Forgot your password?</button><br>
+        <button class="link-btn" id="link-forgot" onclick="forgotPassword()">Forgot your password?</button><br>
         New here? <button class="link-btn" onclick="signUp()">Create your vault</button>
       </div>
       <div class="divider">or</div>
