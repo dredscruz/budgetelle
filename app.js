@@ -267,7 +267,38 @@ document.getElementById('login-form').addEventListener('submit', async e => {
   }
   const hash = await sha256hex(em + ':' + pw + ':' + atob(u.salt).split('').map(c=>c.charCodeAt(0)).join(''));
   if (hash !== u.hash) {
-    // password mismatch: maybe they signed up with Google on another device — offer the easy path
+    // Local record may be stale (an earlier session/migration may have rewritten it).
+    // Ask the cloud before rejecting the user — heal the local record if cloud agrees.
+    try{
+      const csalt2 = await cloudFetchSalt(em);
+      if(csalt2){
+        const chash2 = await sha256hex(em + ':' + pw + ':' + atob(csalt2).split('').map(c=>c.charCodeAt(0)).join(''));
+        const vr2 = await fetch('/api/vault', { headers:{ 'bt-email':em,'bt-salt':csalt2,'bt-hash':chash2 } });
+        if(vr2.ok){
+          // cloud accepts these credentials — repair this device's record and sign in
+          users[em]={salt:csalt2,hash:chash2};
+          localStorage.setItem(LS_USERS,JSON.stringify(users));
+          SESSION.cred={salt:csalt2,hash:chash2};
+          const kek=await deriveKey(pw,Uint8Array.from(atob(csalt2),c=>c.charCodeAt(0)));
+          let env=null;
+          try{ const j=await vr2.clone().json(); if(j&&j.doc)env=await openCloudDoc(j.doc,kek); }catch{}
+          if(env&&env.db){
+            SESSION.email=em; SESSION.key=kek; SESSION.kek=kek;
+            SESSION.dek=env.dekB64; SESSION.recovWrap=env.recovery;
+            DB=env.db;
+            localStorage.setItem(LS_DATA(em),JSON.stringify(await encryptJSON(SESSION.key,DB)));
+            resetIdle(); enterApp(); refreshAll();
+            toast('Welcome back ✓ Your vault is restored and this device is repaired.');
+            return;
+          }
+          await openSession(em,pw,{cloudKey:{salt:csalt2,hash:chash2},dek:env&&env.dekB64,recovWrap:env&&env.recovery});
+          await loadCloudVault();
+          toast('Welcome back ✓ Signed in — this device\'s login was repaired.');
+          return;
+        }
+      }
+    }catch{ /* offline — fall through */ }
+    // maybe they signed up with Google on another device — offer the easy path
     try{
       const me = await (await fetch('/api/auth/me')).json();
       if(me.authenticated && me.email && me.email.toLowerCase()===em){
