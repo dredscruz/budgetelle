@@ -88,8 +88,9 @@ async function cloudPublishAccount(em){
 }
 async function cloudResetAccount(em){
   const u=getUsers()[em]; if(!u)return;
-  try{ await fetch('/api/account',{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({email:em,salt:u.salt,hash:u.hash})}); }catch{}
+  try{ const prev=JSON.parse(localStorage.getItem('__fpOldCred')||'null');
+    await fetch('/api/account',{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:em,salt:u.salt,hash:u.hash,...(prev?{oldHash:prev.oldHash}:{}),noKey:true})}); }catch{}
 }
 async function cloudFetchSalt(em){
   try{ const r=await fetch('/api/account?email='+encodeURIComponent(em)); if(!r.ok)return null;
@@ -1791,11 +1792,14 @@ async function doReset(){
   }
   // No recovery key (or none on file): fresh start
   if(!hadLocal && !confirm('No vault record for '+em+' was found on this device and no Recovery Key was given. A fresh password will be set with an EMPTY vault (old data cannot be decrypted without the Recovery Key). Continue?'))return;
+  const oldCred=users[em]||null;
+  localStorage.setItem('__fpOldCred',JSON.stringify(oldCred?{oldHash:oldCred.hash}:{}));
   localStorage.removeItem(LS_DATA(em));
   const salt=crypto.getRandomValues(new Uint8Array(16));
   users[em]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(em+':'+p1+':'+btoa(String.fromCharCode(...salt)))};
   localStorage.setItem(LS_USERS,JSON.stringify(users));
   await cloudResetAccount(em); // new password valid on every device
+  localStorage.removeItem('__fpOldCred');
   try{ await fetch('/api/vault',{method:'POST',headers:{'Content-Type':'application/json',
     'bt-email':em,'bt-salt':users[em].salt,'bt-hash':users[em].hash},body:JSON.stringify({doc:''})}); }catch{} // drop stale blob
   closeModal();

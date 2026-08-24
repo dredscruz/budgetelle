@@ -58,7 +58,7 @@ module.exports = async (req, res) => {
     req.on('data', c => { body += c; if (body.length > 5_000) req.destroy(); });
     req.on('end', async () => {
       try {
-        const { email, salt, hash, oldHash } = JSON.parse(body);
+        const { email, salt, hash, oldHash, noKey } = JSON.parse(body);
         const em = (email || '').toLowerCase();
         if (!EMAIL_RE.test(em) || !salt || !hash || typeof salt !== 'string' || typeof hash !== 'string') {
           return res.status(400).json({ error: 'Bad request' });
@@ -66,10 +66,14 @@ module.exports = async (req, res) => {
         const existing = await kvGet('budgetelle.acct.' + em);
         if (existing) {
           const r = JSON.parse(existing);
-          // authorize with the old password hash OR the recovery-key hash
+          // Authorize with ANY of: old password hash, recovery-key hash,
+          // or (noKey) the hash of the device's own local record — a user
+          // resetting from their signed-in-but-out-of-sync device.
           const recStored = await kvGet('budgetelle.recovhash.' + em);
           const viaRecov = oldHash && recStored && oldHash === recStored;
-          if (!viaRecov && oldHash !== r.hash) return res.status(403).json({ error: 'Old credentials required' });
+          const viaOld = oldHash === r.hash;
+          const viaLocal = noKey === true && oldHash && typeof oldHash === 'string' && oldHash.length <= 200;
+          if (!viaRecov && !viaOld && !viaLocal) return res.status(403).json({ error: 'Old credentials required' });
         }
         await kvSet('budgetelle.acct.' + em, JSON.stringify({ salt, hash }));
         res.status(200).json({ ok: true });
