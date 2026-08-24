@@ -41,7 +41,7 @@ const ok=(name,c)=>console.log((c?'PASS':'FAIL')+'  '+name);
   r=await fetch(`${BASE}/api/account?email=${encodeURIComponent(EM)}`);
   const {salt:csaltB64}=await r.json();
   const csalt=Uint8Array.from(atob(csaltB64),c=>c.charCodeAt(0));
-  const chash=await sha256hex(`${EM}:${PW}:${csaltB64}`);
+  const chash=await sha256hex(`${EM}:${PW}:${csaltB64}`); // NOTE: must match app.js login formula (salt as base64 string)
   const vr=await fetch(BASE+'/api/vault',{headers:{'bt-email':EM,'bt-salt':csaltB64,'bt-hash':chash}});
   const vj=await vr.json();
   ok('B: cloud accepts correct password',vj.doc===blob);
@@ -86,4 +86,18 @@ const ok=(name,c)=>console.log((c?'PASS':'FAIL')+'  '+name);
   // vault data safe; only future syncs follow the new login). The vault blob
   // is cleared on reset, so a hijacker gets an EMPTY vault, not the owner's.
   ok('Security: takeover yields empty vault, not owner data (by design)',true);
+
+  // ---- REGRESSION: login hash formula must equal signup hash formula.
+  // The Aug-2026 bug: login hashed email:pw:<decimal-charcodes-of-decoded-salt>
+  // while signup hashed email:pw:<base64-salt> — no password could ever match,
+  // so every sign-in failed and forgot-password reported "no record".
+  const em2=`loginfix${Date.now()}@example.com`, pw2='regression1';
+  const sB64=btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+  const hSignup=await sha256hex(`${em2}:${pw2}:${sB64}`);            // as signUp() computes
+  await fetch(BASE+'/api/account',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:em2,salt:sB64,hash:hSignup})});
+  // as the FIXED doLogin() computes (salt used verbatim, base64):
+  const hLogin=await sha256hex(`${em2}:${pw2}:${sB64}`);
+  r=await fetch(BASE+'/api/vault',{headers:{'bt-email':em2,'bt-salt':sB64,'bt-hash':hLogin}});
+  ok('Regression: login hash matches signup hash (same salt encoding)',r.status===200);
 })();

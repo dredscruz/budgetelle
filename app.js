@@ -227,7 +227,7 @@ async function doLogin(em,pw){
     // Pull its published salt and verify against the cloud record.
     const csalt = await cloudFetchSalt(em);
     if (csalt) {
-      const chash = await sha256hex(em + ':' + pw + ':' + atob(csalt).split('').map(c=>c.charCodeAt(0)).join(''));
+      const chash = await sha256hex(em + ':' + pw + ':' + csalt);
       try{
         const vr = await fetch('/api/vault', { headers:{ 'bt-email':em,'bt-salt':csalt,'bt-hash':chash } });
         if(vr.ok){
@@ -279,14 +279,14 @@ async function doLogin(em,pw){
     }catch{ /* fall through to error */ }
     return showLoginErr(true,'We couldn\u2019t find a vault for that email on this device. First time here? Use \u201cCreate your vault\u201d below \u2014 or check the spelling.');
   }
-  const hash = await sha256hex(em + ':' + pw + ':' + atob(u.salt).split('').map(c=>c.charCodeAt(0)).join(''));
+  const hash = await sha256hex(em + ':' + pw + ':' + u.salt);
   if (hash !== u.hash) {
     // Local record may be stale (an earlier session/migration may have rewritten it).
     // Ask the cloud before rejecting the user — heal the local record if cloud agrees.
     try{
       const csalt2 = await cloudFetchSalt(em);
       if(csalt2){
-        const chash2 = await sha256hex(em + ':' + pw + ':' + atob(csalt2).split('').map(c=>c.charCodeAt(0)).join(''));
+        const chash2 = await sha256hex(em + ':' + pw + ':' + csalt2);
         const vr2 = await fetch('/api/vault', { headers:{ 'bt-email':em,'bt-salt':csalt2,'bt-hash':chash2 } });
         if(vr2.ok){
           // cloud accepts these credentials — repair this device's record and sign in
