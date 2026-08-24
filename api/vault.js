@@ -20,7 +20,8 @@ async function auth(req, res) {
 }
 
 module.exports = async (req, res) => {
-  const a = auth(req, res); if (!a) return;
+  const a = await auth(req, res); if (!a) return;
+  if (!a.account) return res.status(401).json({ error: 'Sign in or use an invite link' });
   const mine = 'budgetelle.vault.' + a.account;
 
   if (req.method === 'GET') {
