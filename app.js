@@ -584,7 +584,8 @@ function catField(kind,id,list,sel){
   return `<select id="${id}" onchange="if(this.value==='__new__')inlineNewCat('${kind}','${id}')">${catOptions(list,sel)}<option value="__new__" style="color:var(--gold)">＋ New category…</option></select>`;
 }
 function inlineNewCat(kind,selId){
-  const name=prompt('New '+(kind==='inc'?'income':'expense')+' category:'); 
+  const label=kind==='inc'?'income':(kind==='budget'?'budget':'expense');
+  const name=prompt('New '+label+' category:');
   if(!name||!name.trim()){ document.getElementById(selId).selectedIndex=0; return; }
   const clean=name.trim();
   const list=kind==='inc'?DB.settings.catsInc:DB.settings.catsExp;
@@ -821,7 +822,7 @@ function renderBudget(){
 }
 function openBudget(){
   openModal(`<h3>Add budget</h3><form onsubmit="saveBudget(event)">
-    ${f('Category',catField('exp','b-cat',expCats().slice()))}
+    ${f('Category',catField('budget','b-cat',expCats().slice()))}
     <div class="grid2">${f('Monthly limit','<input type="number" step="0.01" id="b-limit" required>')}${f('Currency','<select id="b-cur">'+curOptions()+'</select>')}</div>
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);
 }
