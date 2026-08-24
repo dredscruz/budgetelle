@@ -26,7 +26,7 @@ async function sha256hex(s) {
 }
 
 /* ---------- state ---------- */
-let SESSION = { key: null, email: null, timer: null, cloud: false, memberScope: null };
+let SESSION = { key: null, email: null, timer: null, cloud: false, memberScope: null, cred: null };
 const CURRENCIES = {
   USD:{s:'$',n:'US Dollar'}, EUR:{s:'€'}, GBP:{s:'£'}, AED:{s:'AED '}, PHP:{s:'₱'},
   INR:{s:'₹'}, JPY:{s:'¥'}, CAD:{s:'C$'}, AUD:{s:'A$'}, SGD:{s:'S$'}, CHF:{s:'CHF '}, SAR:{s:'SAR '}
@@ -61,6 +61,30 @@ const LS_USERS = 'budgetelle.users';
 const LS_DATA = e => `budgetelle.vault.${e}`;
 function getUsers() { try { return JSON.parse(localStorage.getItem(LS_USERS)) || {}; } catch { return {}; } }
 
+/* ---------- cloud account sync (email/password users) ----------
+   The server stores only: the PBKDF2 salt, a password-verifier hash, and the
+   AES-GCM-encrypted vault blob. Zero-knowledge is preserved. */
+async function cloudPublishAccount(em){
+  const u=getUsers()[em]; if(!u)return;
+  try{ await fetch('/api/account',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:em,salt:u.salt,hash:u.hash})}); }catch{}
+}
+async function cloudResetAccount(em){
+  const u=getUsers()[em]; if(!u)return;
+  try{ await fetch('/api/account',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:em,salt:u.salt,hash:u.hash})}); }catch{}
+}
+async function cloudFetchSalt(em){
+  try{ const r=await fetch('/api/account?email='+encodeURIComponent(em)); if(!r.ok)return null;
+    return (await r.json()).salt||null; }catch{ return null; }
+}
+function credHeaders(){
+  if(SESSION.cred)return { 'bt-email':SESSION.email,'bt-salt':SESSION.cred.salt,'bt-hash':SESSION.cred.hash };
+  const em=SESSION.email,u=em&&getUsers()[em];
+  if(!u)return {};
+  return { 'bt-email':em,'bt-salt':u.salt,'bt-hash':u.hash };
+}
+
 /* ---------- auth ---------- */
 async function signUp() {
   const em = document.getElementById('login-email').value.trim().toLowerCase();
@@ -72,6 +96,7 @@ async function signUp() {
   const hash = await sha256hex(em + ':' + pw + ':' + btoa(String.fromCharCode(...salt)));
   users[em] = { salt: btoa(String.fromCharCode(...salt)), hash };
   localStorage.setItem(LS_USERS, JSON.stringify(users));
+  await cloudPublishAccount(em); // register in the cloud so any device can sign in
   await openSession(em, pw);
 }
 document.getElementById('login-form').addEventListener('submit', async e => {
@@ -80,7 +105,27 @@ document.getElementById('login-form').addEventListener('submit', async e => {
   const pw = document.getElementById('login-pass').value;
   const u = getUsers()[em];
   if (!u) {
-    // No local vault for this email — if the browser holds a matching Google session,
+    // No local record: maybe this account was created on another device.
+    // Pull its published salt and verify against the cloud record.
+    const csalt = await cloudFetchSalt(em);
+    if (csalt) {
+      const chash = await sha256hex(em + ':' + pw + ':' + atob(csalt).split('').map(c=>c.charCodeAt(0)).join(''));
+      try{
+        const vr = await fetch('/api/vault', { headers:{ 'bt-email':em,'bt-salt':csalt,'bt-hash':chash } });
+        if(vr.ok){
+          // credentials accepted by the cloud — adopt this account on this device
+          users[em]={salt:csalt,hash:chash};
+          localStorage.setItem(LS_USERS,JSON.stringify(users));
+          await openSession(em,pw,{cloudKey:{salt:csalt,hash:chash}});
+          await loadCloudVault();
+          toast('Welcome back ✓ Your vault is synced from the cloud.');
+          return;
+        } else if(vr.status===401){
+          return showLoginErr(true,'That password doesn\u2019t match. Forgotten it? Tap \u201cForgot your password?\u201d below.');
+        }
+      }catch{ /* offline — fall through */ }
+    }
+    // if the browser holds a matching Google session,
     // sign them straight in instead of failing.
     try{
       const me = await (await fetch('/api/auth/me')).json();
@@ -118,10 +163,14 @@ document.getElementById('login-form').addEventListener('submit', async e => {
 });
 function showLoginErr(v,msg){ const el=document.getElementById('login-err'); if(msg)el.textContent=msg; el.style.display=v?'block':'none'; if(v){ const fl=document.getElementById('link-forgot'); if(fl){fl.classList.remove('nudge'); void fl.offsetWidth; fl.classList.add('nudge');} } }
 
-async function openSession(email, pass) {
-  const salt = Uint8Array.from(atob(getUsers()[email].salt), c => c.charCodeAt(0));
-  SESSION.key = await deriveKey(pass, salt);
+async function openSession(email, pass, opts) {
+  opts=opts||{};
+  const uRec = getUsers()[email]||{};
+  const saltBytes = Uint8Array.from(atob(opts.cloudKey?opts.cloudKey.salt:uRec.salt), c => c.charCodeAt(0));
+  SESSION.key = await deriveKey(pass, saltBytes);
   SESSION.email = email;
+  if(opts.cloudKey) SESSION.cred={salt:opts.cloudKey.salt,hash:opts.cloudKey.hash};
+  else SESSION.cred=null;
   const raw = localStorage.getItem(LS_DATA(email));
   DB = raw ? await decryptJSON(SESSION.key, JSON.parse(raw)) : blankDB();
   resetIdle();
@@ -202,9 +251,9 @@ function persist(){
     const blob = await encryptJSON(SESSION.key, DB);
     const str = JSON.stringify(blob);
     localStorage.setItem(LS_DATA(SESSION.email), str);
-    // mirror the encrypted blob to the cloud so family members can open it on their own devices
-    if (SESSION.cloud) {
-      try { await fetch('/api/vault', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ doc: str }) }); }
+    // mirror the encrypted blob to the cloud so any device can pick up where this one left off
+    if (SESSION.cloud || credHeaders()['bt-email']) {
+      try { await fetch('/api/vault', { method:'POST', headers:{'Content-Type':'application/json', ...credHeaders()}, body: JSON.stringify({ doc: str }) }); }
       catch { /* offline — local copy still saved */ }
     }
   }, 400);
@@ -1532,6 +1581,7 @@ async function doReset(){
   const salt=crypto.getRandomValues(new Uint8Array(16));
   users[em]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(em+':'+p1+':'+btoa(String.fromCharCode(...salt)))};
   localStorage.setItem(LS_USERS,JSON.stringify(users));
+  await cloudResetAccount(em); // new password valid on every device
   closeModal();toast('New password set ✓ Sign in with it now.');
 }
 async function changePassword(){
