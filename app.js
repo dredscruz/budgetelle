@@ -564,7 +564,7 @@ function postedCount(){
 }
 function postRecurring(id){
   const r=DB.recurring.find(x=>x.id===id); if(!r)return;
-  DB.entries.push({id:uid(),date:r.next,type:'expense',category:r.category,amount:r.amount,cur:DB.settings.baseCur,notes:r.name+' (subscription)',subId:r.id});
+  DB.entries.push({id:uid(),date:r.next,type:'expense',category:r.category,amount:r.amount,cur:r.cur||DB.settings.baseCur,notes:r.name+' (subscription)',subId:r.id});
   // advance the next-due date by one period
   const d=new Date(r.next);
   if(r.freq==='monthly')d.setMonth(d.getMonth()+1);
@@ -1264,21 +1264,13 @@ function saveBaseCur(){
   const prev=DB.settings.baseCur;
   const next=v('base-cur');
   if(prev===next){persist();return;}
-  // convert every stored amount from the old base to the new one
-  let touched=0;
-  DB.entries.forEach(e=>{e.amount=+(convAmt(e.amount,e.cur||prev,next)).toFixed(2);e.cur=next;touched++;});
-  DB.budgets.forEach(b=>{b.limit=+convAmt(b.limit,b.cur||prev,next).toFixed(2);b.cur=next;});
-  DB.recurring.forEach(r=>{r.amount=+convAmt(r.amount,r.cur||prev,next).toFixed(2);r.cur=next;});
-  DB.insurance.forEach(i=>{i.premium=+convAmt(i.premium,i.cur||prev,next).toFixed(2);i.cur=next;});
-  DB.loans.forEach(l=>{['principal','emi','outstanding'].forEach(k=>l[k]=+convAmt(l[k],l.cur||prev,next).toFixed(2));l.cur=next;});
-  DB.assets.forEach(a=>{a.value=+convAmt(a.value,a.cur||prev,next).toFixed(2);a.cur=next;});
-  DB.goals.forEach(g=>{['target','saved','monthly'].forEach(k=>g[k]=+convAmt(g[k],prev,next).toFixed(2));});
-  DB.snapshots.forEach(s=>{s.assets=+convAmt(s.assets,prev,next).toFixed(2);s.liabilities=+convAmt(s.liabilities,prev,next).toFixed(2);});
-  DB.cards.forEach(c=>c.rules.forEach(r=>{/* rules are %, nothing to convert */}));
+  // Amounts stay in the currency they were originally entered in — nothing is
+  // rewritten. Only the display changes: every total, KPI and Eq column
+  // recomputes against the new default currency via toBase().
   DB.settings.baseCur=next;
   DB.settings.rates={}; // old manual rates were relative to the previous base
   persist();refreshAll();
-  toast(`Default currency set to ${CURRENCIES[next]?.s??''} ${next} — all amounts converted (${touched} entries) ✓`);
+  toast(`Default currency set to ${CURRENCIES[next]?.s??''} ${next} — totals now shown in ${next}, original amounts untouched ✓`);
 }
 function addCurrency(ev){
   ev.preventDefault();
