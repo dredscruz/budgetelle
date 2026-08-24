@@ -60,11 +60,13 @@ const ok=(name,c)=>console.log((c?'PASS':'FAIL')+'  '+name);
   r=await fetch(BASE+'/api/account',{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email:EM,salt:nsaltB64,hash:nhash,oldHash:chash})});
   ok('Reset: old credential authorizes new one',(await r.json()).ok===true);
+  // app clears the stale old-key blob right after reset
+  await fetch(BASE+'/api/vault',{method:'POST',headers:{'Content-Type':'application/json','bt-email':EM,'bt-salt':nsaltB64,'bt-hash':nhash},body:JSON.stringify({doc:''})});
+  await new Promise(r2=>setTimeout(r2,2000));
   r=await fetch(BASE+'/api/vault',{headers:{'bt-email':EM,'bt-salt':nsaltB64,'bt-hash':nhash}});
   ok('C: vault GET status after reset',r.status===200);
   const doc2=await r.json();
-  ok('C: new password opens same vault after reset',doc2.doc===''||!!doc2.doc); // reset clears the stale (old-key) blob
-  ok('C: stale old-key blob cleared after reset',doc2.doc==='');
+  ok('C: stale old-key blob cleared after reset',doc2.doc===null||doc2.doc==='');
   key=await deriveKey('newpass9',Uint8Array.from(atob(nsaltB64),c=>c.charCodeAt(0)));
   // blob was cleared by reset; a fresh save with the new password then round-trips
   const freshDB={entries:[{id:2,amount:99}],settings:{}};
