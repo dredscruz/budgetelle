@@ -609,9 +609,11 @@ function inlineNewCat(kind,selId){
 }
 
 /* ---------- generic entry forms (income/expense) ---------- */
-function openEntry(type){
+function openEntry(type,memberId){
   const cats = type==='income'?incCats():expCats();
-  openModal(`<h3>${type==='income'?'Add income':'Add expense'}</h3>
+  const mPre = memberId||null;
+  const mLabel = mPre ? (DB.members.find(m=>m.id===mPre)||{}).name : null;
+  openModal(`<h3>${type==='income'?'Add income':'Add expense'}${mLabel?' — '+escAttr(mLabel):''}</h3>
   <form onsubmit="saveEntry(event,'${type}')">
     ${f('Date','<input type="date" id="e-date" required value="'+isoOf(new Date())+'">')}
     <div class="grid2">
@@ -619,7 +621,7 @@ function openEntry(type){
       ${f('Currency','<select id="e-cur">'+curOptions()+'</select>')}
     </div>
     ${f('Amount','<input type="number" step="0.01" min="0" id="e-amt" required placeholder="0.00">')}
-    <div class="grid2">${f('Family member',`<select id="e-member">${memberOptions()}</select>`)}${f('Privacy','<select id="e-priv"><option value="shared">Shared with family</option><option value="private">Private (hidden in family view)</option></select>')}</div>
+    <div class="grid2">${f('Family member',`<select id="e-member">${memberOptions(mPre)}</select>`)}${f('Privacy','<select id="e-priv"><option value="shared">Shared with family</option><option value="private">Private (hidden in family view)</option></select>')}</div>
     ${f('Notes','<input id="e-notes" placeholder="Optional note">')}
     <label style="display:flex;gap:10px;align-items:center;font-size:13px;margin-top:6px"><input type="checkbox" id="e-recur" style="width:auto"> Repeat monthly (auto-suggest in Recurring)</label>
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div>
@@ -776,14 +778,18 @@ function renderEntryTable(list,type){
   const visible=list.filter(e=>canTouchEntry(e));
   if(!visible.length)return '<div class="empty">Nothing yet — add your first entry above.</div>';
   const sorted=[...visible].sort((a,b)=>b.date.localeCompare(a.date));
-  return table(['Date','Category','Amount','Currency',eqHead('uivalent'),'Notes',''],sorted.map(e=>[
-    e.date, e.category,
+  const showMember=DB.members.length>0&&(activeMember()===null||canSeeAll(activeMember().role));
+  return table(showMember?['Date','Category','Member','Amount','Currency',eqHead('uivalent'),'Notes','']:['Date','Category','Amount','Currency',eqHead('uivalent'),'Notes',''],sorted.map(e=>{
+    const base=[e.date, e.category];
+    if(showMember)base.push(`<span style="white-space:nowrap">${e.memberId?memberDot(DB.members.find(m=>m.id===e.memberId)||{name:'?',color:'#888'})+' <span style="font-size:13px">'+escAttr(memberName(e.memberId))+'</span>':'<span style="color:var(--muted);font-size:12.5px">Household</span>'}</span>`);
+    base.push(
     `<span class="${type==='income'?'pos':'neg'}">${type==='income'?'+':'−'}${fmt(e.amount,e.cur)}</span>`,
     curSelect('entries',e.id,e.cur),
     eqBase(e.amount,e.cur),
     e.notes||'—',
-    `<span class="tbl-actions"><button onclick="editEntry('${e.id}')">Edit</button><button class="del" onclick="delItem('entries','${e.id}')">Delete</button></span>`
-  ]));
+    `<span class="tbl-actions"><button onclick="editEntry('${e.id}')">Edit</button><button class="del" onclick="delItem('entries','${e.id}')">Delete</button></span>`);
+    return base;
+  }));
 }
 function editEntry(id){
   const e=DB.entries.find(x=>x.id===id); if(!e)return;
@@ -1169,12 +1175,15 @@ function renderFamily(){
     return {m,inc,exp,n:mine.length};
   });
   const un=tm.filter(e=>!e.memberId&&e.type==='expense').reduce((a,e)=>a+toBase(e.amount,e.cur),0);
-  document.getElementById('family-breakdown').innerHTML=(rows.some(r=>r.n)||un)?table(['','Member','Income','Expenses','Net','Entries'],
+  document.getElementById('family-breakdown').innerHTML=(rows.some(r=>r.n)||un)?table(['','Member','Income','Expenses','Net','Entries','Add'],
     rows.filter(r=>r.n).map(r=>[memberDot(r.m),escAttr(r.m.name)+(r.m.masked?' <span style="color:var(--gold);font-size:12px">(hidden)</span>':''),
       `<span class="${r.m.masked?'':''}">${r.m.masked?'••••':fmt(r.inc)}</span>`,
       `<span>${r.m.masked?'••••':fmt(r.exp)}</span>`,
-      `<b>${r.m.masked?'••••':fmt(r.inc-r.exp)}</b>`,r.n]))
-    .join('')+(un?`<tr><td></td><td style="color:var(--muted)">Shared / unattributed</td><td></td><td>${fmt(un)}</td><td></td><td></td></tr>`:'')
+      `<b>${r.m.masked?'••••':fmt(r.inc-r.exp)}</b>`,r.n,
+      `<span class="tbl-actions"><button onclick="openEntry('income','${r.m.id}')">+ Income</button><button onclick="openEntry('expense','${r.m.id}')">+ Expense</button></span>`]))
+    .join('')
+    +(rows.some(r=>!r.n)?`<tr><td colspan="7" style="padding-top:10px;color:var(--muted);font-size:12.5px">Members with no entries yet this month: ${rows.filter(r=>!r.n).map(r=>escAttr(r.m.name)).join(', ')} <button class="btn btn-ghost" style="margin-left:8px;padding:4px 10px;font-size:12px" onclick="openEntry('income')">+ Add income for someone</button></td></tr>`:'')
+    +(un?`<tr><td></td><td style="color:var(--muted)">Shared / unattributed</td><td></td><td>${fmt(un)}</td><td></td><td></td><td></td></tr>`:'')
     :'<div class="empty">Nothing attributed yet.</div>';
 }
 function openMember(){
