@@ -436,6 +436,9 @@ function seedDemo(db) {
 }
 function uid(){ return Math.random().toString(36).slice(2,10); }
 function isoOf(d){ return d.toISOString().slice(0,10); }
+function isoLocal(d){ /* local-calendar date string — UTC version misplaces entries near midnight (e.g. UTC+4) */
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
 function ymOf(d){ return d.toISOString().slice(0,7); }
 function logSec(db,msg){ db.secLog.unshift({ t:new Date().toISOString(), msg }); db.secLog=db.secLog.slice(0,50); }
 function logSecNow(msg){ if(DB){logSec(DB,msg); persist();} }
@@ -940,14 +943,16 @@ function saveSnap(e){e.preventDefault();DB.snapshots=DB.snapshots.filter(s=>s.mo
 function renderGoals(){
   const el=document.getElementById('goals-list');
   el.innerHTML=DB.goals.length?DB.goals.map(g=>{
+    const cur=g.cur||DB.settings.baseCur;
     const pc=Math.min(100,g.saved/g.target*100);
     const monthsLeft=Math.max(0,(g.target-g.saved)/(g.monthly||1));
-    return `<div class="card"><div style="display:flex;justify-content:space-between"><h3>${g.name}</h3>
+    const eq=cur!==DB.settings.baseCur?` <span style="color:var(--muted);font-size:13px">(≈ ${fmt(toBase(g.saved,cur))} / ${fmt(toBase(g.target,cur))})</span>`:'';
+    return `<div class="card"><div style="display:flex;justify-content:space-between"><h3>${escAttr(g.name)}${cur!==DB.settings.baseCur?` <span class="pill bluetxt" style="font-size:11px">${cur}</span>`:''}</h3>
       <span class="tbl-actions"><button onclick="editGoal('${g.id}')">Edit</button><button class="del" onclick="delItem('goals','${g.id}')">Delete</button></span></div>
-      <div style="font-size:22px;font-weight:700">${fmt(g.saved)} <span style="color:var(--muted);font-size:14px">of ${fmt(g.target)}</span></div>
+      <div style="font-size:22px;font-weight:700">${fmt(g.saved,cur)} <span style="color:var(--muted);font-size:14px">of ${fmt(g.target,cur)}</span></div>${eq}
       <div class="progress"><div style="width:${pc}%"></div></div>
       <div class="bar-row"><span class="bluetxt">${Math.round(pc)}% funded</span><span style="color:var(--muted)">by ${g.byDate}</span></div>
-      <div class="note" style="color:var(--muted);font-size:13px;margin-top:8px">${fmt(g.monthly)}/mo → about ${monthsLeft.toFixed(1)} months to go</div></div>`;
+      <div class="note" style="color:var(--muted);font-size:13px;margin-top:8px">${fmt(g.monthly,cur)}/mo → about ${monthsLeft.toFixed(1)} months to go</div></div>`;
   }).join(''):'<div class="card empty">No goals yet — set your first one!</div>';
 }
 function openGoal(){
@@ -955,15 +960,18 @@ function openGoal(){
     ${f('Goal name','<input id="g-name" required placeholder="e.g. Japan holiday">')}
     <div class="grid2">${f('Target amount','<input type="number" step="0.01" id="g-target" required>')}${f('Already saved','<input type="number" step="0.01" id="g-saved" value="0">')}</div>
     <div class="grid2">${f('Target date','<input type="date" id="g-by" required>')}${f('Monthly contribution','<input type="number" step="0.01" id="g-monthly" required>')}</div>
+    ${f('Currency','<select id="g-cur">'+curOptions()+'</select>')}
+    <p style="color:var(--muted);font-size:12.5px;margin-top:6px">Pick the currency you'll save in — progress is still rolled up into your base currency everywhere else.</p>
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);
 }
-function saveGoal(e){e.preventDefault();DB.goals.push({id:uid(),name:v('g-name'),target:+v('g-target'),saved:+v('g-saved'),byDate:v('g-by'),monthly:+v('g-monthly')});persist();closeModal();refreshAll();toast('Goal set 🏁');}
+function saveGoal(e){e.preventDefault();DB.goals.push({id:uid(),name:v('g-name'),target:+v('g-target'),saved:+v('g-saved'),byDate:v('g-by'),monthly:+v('g-monthly'),cur:v('g-cur')||DB.settings.baseCur});persist();closeModal();refreshAll();toast('Goal set 🏁');}
 function editGoal(id){const g=DB.goals.find(x=>x.id===id);
   openModal(`<h3>Edit goal</h3><form onsubmit="updGoal(event,'${id}')">
   ${f('Saved so far',`<input type="number" step="0.01" id="g-saved" value="${g.saved}" required>`)}
   <div class="grid2">${f('Target',`<input type="number" step="0.01" id="g-target" value="${g.target}" required>`)}${f('Monthly',`<input type="number" step="0.01" id="g-monthly" value="${g.monthly}" required>`)}</div>
+  ${f('Currency','<select id="g-cur">'+curOptions(g.cur)+'</select>')}
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);}
-function updGoal(e,id){e.preventDefault();const g=DB.goals.find(x=>x.id===id);g.saved=+v('g-saved');g.target=+v('g-target');g.monthly=+v('g-monthly');persist();closeModal();refreshAll();}
+function updGoal(e,id){e.preventDefault();const g=DB.goals.find(x=>x.id===id);g.saved=+v('g-saved');g.target=+v('g-target');g.monthly=+v('g-monthly');g.cur=v('g-cur')||g.cur||DB.settings.baseCur;persist();closeModal();refreshAll();}
 
 /* ---------- assets ---------- */
 function renderAssets(){
@@ -1596,9 +1604,9 @@ function cancelSub(id){const r=DB.recurring.find(x=>x.id===id);if(r){r.status='C
 function renderDigest(){
   const el=document.getElementById('digest-card');if(!el)return;
   const wkStart=new Date(Date.now()-7*86400000);
-  const wkIso=isoOf(wkStart);
-  const thisWk=visEntries().filter(e=>e.type==='expense'&&e.date>=wkIso&&e.date<=isoOf(new Date()));
-  const prevWk=visEntries().filter(e=>e.type==='expense'&&e.date>=isoOf(new Date(Date.now()-14*86400000))&&e.date<wkIso);
+  const todayIso=isoLocal(new Date()), wkIso=isoLocal(wkStart);
+  const thisWk=visEntries().filter(e=>e.type==='expense'&&e.date>=wkIso&&e.date<=todayIso);
+  const prevWk=visEntries().filter(e=>e.type==='expense'&&e.date>=isoLocal(new Date(Date.now()-14*86400000))&&e.date<wkIso);
   const tSum=thisWk.reduce((a,e)=>a+toBase(e.amount,e.cur),0), pSum=prevWk.reduce((a,e)=>a+toBase(e.amount,e.cur),0);
   const diff=pSum?tSum-pSum:tSum;
   // upcoming renewals
@@ -2065,11 +2073,15 @@ function qcParse(text,type){
   if(am){amount=parseFloat(am[1].replace(/,/g,''));if(/k\b/i.test(am[0]))amount*=1000;}
   if(!amount)return null;
   // date
-  let date=isoOf(new Date());
+  let date=isoLocal(new Date());
   const today=new Date();
-  if(/\byesterday\b/.test(t)){date=isoOf(new Date(today-86400000));}
-  else if(/\b(last night|this morning|earlier today|today)\b/.test(t)){date=isoOf(today);}
-  else{const md=t.match(/\b(\d{1,2})\/(\d{1,2})\b/);if(md){date=isoOf(new Date(today.getFullYear(),+md[1]-1,+md[2]));}}
+  if(/\byesterday\b/.test(t)){date=isoLocal(new Date(today-86400000));}
+  else if(/\b(last night|this morning|earlier today|today)\b/.test(t)){date=isoLocal(today);}
+  else{const md=t.match(/\b(\d{1,2})\/(\d{1,2})\b/);if(md){
+    // interpret as day/month when the first number can't be a month (e.g. 24/8), else month/day
+    let dd=+md[1],mm=+md[2];
+    if(dd>12&&mm<=12){}else if(mm>12&&dd<=12){[dd,mm]=[mm,dd];}
+    date=isoLocal(new Date(today.getFullYear(),mm-1,dd));}}
   // notes = text minus amount/date words
   let notes=text.replace(/(?:[$€£₱]|aed|usd|eur|gbp)?\s?[\d,]+(?:\.\d{1,2})?\s*k?\b/i,'')
     .replace(/\b(paid|spent|bought|received|got|for|on|at|in|yesterday|today|this morning|last night|earlier)\b/gi,' ')
