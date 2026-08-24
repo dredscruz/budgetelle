@@ -343,6 +343,22 @@ function toast(msg){
 const f=(label,input)=>`<div class="field"><label>${label}</label>${input}</div>`;
 function curOptions(sel){ return Object.keys(CURRENCIES).map(c=>`<option value="${c}" ${c===(sel||DB.settings.baseCur)?'selected':''}>${c}</option>`).join(''); }
 function catOptions(list,sel){ return list.map(c=>`<option ${c===sel?'selected':''}>${c}</option>`).join(''); }
+/* category dropdown that offers "+ New category…" for on-the-spot creation */
+function catField(kind,id,list,sel){
+  return `<select id="${id}" onchange="if(this.value==='__new__')inlineNewCat('${kind}','${id}')">${catOptions(list,sel)}<option value="__new__" style="color:var(--gold)">＋ New category…</option></select>`;
+}
+function inlineNewCat(kind,selId){
+  const name=prompt('New '+(kind==='inc'?'income':'expense')+' category:'); 
+  if(!name||!name.trim()){ document.getElementById(selId).selectedIndex=0; return; }
+  const clean=name.trim();
+  const list=kind==='inc'?DB.settings.catsInc:DB.settings.catsExp;
+  const existing=list.find(c=>c.toLowerCase()===clean.toLowerCase());
+  if(!existing){ list.push(clean);persist(); }
+  const sel=document.getElementById(selId);
+  sel.innerHTML=catOptions((kind==='inc'?incCats():expCats()).slice(),existing||clean)+'<option value="__new__">＋ New category…</option>';
+  renderSettings&&renderSettings(); refreshAll();
+  toast(existing?'Using existing category "'+clean+'"':'Category "'+clean+'" added ✓');
+}
 
 /* ---------- generic entry forms (income/expense) ---------- */
 function openEntry(type){
@@ -351,7 +367,7 @@ function openEntry(type){
   <form onsubmit="saveEntry(event,'${type}')">
     ${f('Date','<input type="date" id="e-date" required value="'+isoOf(new Date())+'">')}
     <div class="grid2">
-      ${f('Category','<select id="e-cat">'+catOptions(cats)+'</select>')}
+      ${f('Category',catField(type==='income'?'inc':'exp','e-cat',cats))}
       ${f('Currency','<select id="e-cur">'+curOptions()+'</select>')}
     </div>
     ${f('Amount','<input type="number" step="0.01" min="0" id="e-amt" required placeholder="0.00">')}
@@ -526,7 +542,7 @@ function editEntry(id){
   const cats=e.type==='income'?incCats():expCats();
   openModal(`<h3>Edit ${e.type}</h3><form onsubmit="updateEntry(event,'${id}')">
     ${f('Date',`<input type="date" id="e-date" value="${e.date}" required>`)}
-    <div class="grid2">${f('Category',`<select id="e-cat">${catOptions(cats,e.category)}</select>`)}${f('Currency',`<select id="e-cur">${curOptions(e.cur)}</select>`)}</div>
+    <div class="grid2">${f('Category',catField(e.type,'e-cat',(e.type==='income'?incCats():expCats()).slice(),e.category))}${f('Currency',`<select id="e-cur">${curOptions(e.cur)}</select>`)}</div>
     ${f('Amount',`<input type="number" step="0.01" id="e-amt" value="${e.amount}" required>`)}
     ${f('Notes',`<input id="e-notes" value="${escAttr(e.notes||'')}">`)}
     <div class="grid2">${f('Family member',`<select id="e-member">${memberOptions(e.memberId)}</select>`)}${f('Privacy',`<select id="e-priv"><option value="shared">Shared with family</option><option value="private" ${e.private?'selected':''}>Private (hidden in family view)</option></select>`)}</div>
@@ -569,7 +585,7 @@ function renderBudget(){
 }
 function openBudget(){
   openModal(`<h3>Add budget</h3><form onsubmit="saveBudget(event)">
-    ${f('Category',`<select id="b-cat">${catOptions(expCats())}</select>`)}
+    ${f('Category',catField('exp','b-cat',expCats().slice()))}
     <div class="grid2">${f('Monthly limit','<input type="number" step="0.01" id="b-limit" required>')}${f('Currency','<select id="b-cur">'+curOptions()+'</select>')}</div>
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);
 }
@@ -618,7 +634,7 @@ function autoPostDue(){
 function openRecurring(){
   openModal(`<h3>Add recurring</h3><form onsubmit="saveRecurring(event)">
     ${f('Name','<input id="r-name" required>')}
-    <div class="grid2">${f('Category',`<select id="r-cat">${catOptions(expCats())}</select>`)}${f('Amount','<input type="number" step="0.01" id="r-amt" required>')}</div>
+    <div class="grid2">${f('Category',catField('exp','r-cat',expCats().slice()))}${f('Amount','<input type="number" step="0.01" id="r-amt" required placeholder="0.00">')}</div>
     <div class="grid2">${f('Currency','<select id="r-cur">'+curOptions()+'</select>')}${f('Frequency',`<select id="r-freq"><option>monthly</option><option>quarterly</option><option>yearly</option></select>`)}</div>
     ${f('Next due','<input type="date" id="r-next" required>')}
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);
@@ -780,7 +796,7 @@ function renderCards(){
 }
 function openCard(){openModal(`<h3>Add card</h3><form onsubmit="saveCard(event)">
   <div class="grid2">${f('Card name','<input id="c-name" required>')}${f('Bank','<input id="c-bank" required>')}</div>
-  ${f('Best rule — category',`<select id="c-cat">${catOptions(expCats().concat(['Travel']))}</select>`)}
+  ${f('Best rule — category',catField('exp','c-cat',expCats().concat(['Travel'])))}
   ${f('Cashback % for that category','<input type="number" step="0.1" id="c-pct" required placeholder="5">')}
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Save</button></div></form>`);}
 function saveCard(e){e.preventDefault();DB.cards.push({id:uid(),name:v('c-name'),bank:v('c-bank'),rules:[{cat:v('c-cat'),pct:+v('c-pct')}]});persist();closeModal();refreshAll();toast('Card added ✓');}
