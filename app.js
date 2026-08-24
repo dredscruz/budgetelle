@@ -26,7 +26,7 @@ async function sha256hex(s) {
 }
 
 /* ---------- state ---------- */
-let SESSION = { key: null, email: null, timer: null, cloud: false, memberScope: null, cred: null };
+let SESSION = { key: null, email: null, timer: null, cloud: false, memberScope: null, cred: null, dek: null, kek: null, recovWrap: null };
 const CURRENCIES = {
   USD:{s:'$',n:'US Dollar'}, EUR:{s:'€'}, GBP:{s:'£'}, AED:{s:'AED '}, PHP:{s:'₱'},
   INR:{s:'₹'}, JPY:{s:'¥'}, CAD:{s:'C$'}, AUD:{s:'A$'}, SGD:{s:'S$'}, CHF:{s:'CHF '}, SAR:{s:'SAR '}
@@ -85,6 +85,61 @@ function credHeaders(){
   return { 'bt-email':em,'bt-salt':u.salt,'bt-hash':u.hash };
 }
 
+/* ---------- envelope encryption ----------
+   The vault is encrypted under a random Data Encryption Key (DEK).
+   The password-derived key (KEK) merely wraps the DEK, and a personal
+   Recovery Key wraps it independently. Changing or recovering the
+   password re-wraps the SAME DEK — so data survives password changes,
+   and a forgotten password + recovery key restores everything intact. */
+const LS_RECOV = e => 'budgetelle.recov.' + e;
+async function keyFromB64(b64){ return crypto.subtle.importKey('raw',Uint8Array.from(atob(b64),c=>c.charCodeAt(0)),'AES-GCM',false,['encrypt','decrypt']); }
+async function randB64(n){ return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(n)))); }
+async function wrapB64(b64,kek){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},kek,enc.encode(b64));
+  return {iv:btoa(String.fromCharCode(...iv)),ct:btoa(String.fromCharCode(...new Uint8Array(ct)))};
+}
+async function unwrapB64(w,kek){
+  const iv=Uint8Array.from(atob(w.iv),c=>c.charCodeAt(0));
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv},kek,Uint8Array.from(atob(w.ct),c=>c.charCodeAt(0)));
+  return dec.decode(pt);
+}
+async function buildCloudDoc(){
+  const dek=await keyFromB64(SESSION.dek);
+  const vault=await encryptJSON(dek,DB);
+  const wrap=await wrapB64(SESSION.dek,SESSION.kek);
+  return JSON.stringify({fmt:2,wrap,vault,recovery:SESSION.recovWrap||null});
+}
+async function openCloudDoc(docStr,kek){
+  let d; try{d=JSON.parse(docStr);}catch{return null;}
+  if(!d||d.fmt!==2||!d.wrap)return null;
+  let dekB64; try{ dekB64=await unwrapB64(d.wrap,kek); }catch{ return null; }
+  let db; try{ db=await decryptJSON(await keyFromB64(dekB64),d.vault); }catch{ return null; }
+  return {db,dekB64,recovery:d.recovery||null};
+}
+async function openWithRecovery(docStr,rkB64){
+  let d; try{d=JSON.parse(docStr);}catch{return null;}
+  if(!d||d.fmt!==2||!d.recovery)return null;
+  let dekB64; try{ dekB64=await unwrapB64(d.recovery,await keyFromB64(rkB64)); }catch{ return null; }
+  let db; try{ db=await decryptJSON(await keyFromB64(dekB64),d.vault); }catch{ return null; }
+  return {db,dekB64};
+}
+/* ensure the signed-in session has envelope material; migrates legacy vaults */
+async function ensureEnvelope(pass){
+  if(SESSION.dek&&SESSION.kek)return;
+  const em=SESSION.email,u=getUsers()[em]||{};
+  const saltBytes=Uint8Array.from(atob(u.salt),c=>c.charCodeAt(0));
+  SESSION.kek=await deriveKey(pass,saltBytes);
+  if(!SESSION.dek)SESSION.dek=await randB64(32);
+  const rk=localStorage.getItem(LS_RECOV(em));
+  if(rk){
+    SESSION.recovWrap=await wrapB64(SESSION.dek,await keyFromB64(rk));
+    // publish recovery-key hash so recovery can authenticate to the cloud
+    try{ await fetch('/api/account',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:em,salt:u.salt,hash:u.hash,recovHash:await sha256hex(rk)})}); }catch{}
+  }
+}
+
 /* ---------- auth ---------- */
 async function signUp() {
   const em = document.getElementById('login-email').value.trim().toLowerCase();
@@ -96,8 +151,42 @@ async function signUp() {
   const hash = await sha256hex(em + ':' + pw + ':' + btoa(String.fromCharCode(...salt)));
   users[em] = { salt: btoa(String.fromCharCode(...salt)), hash };
   localStorage.setItem(LS_USERS, JSON.stringify(users));
+  // generate a personal Recovery Key — the only way to restore data after a forgotten password
+  const rk=await randB64(24);
+  localStorage.setItem(LS_RECOV(em),rk);
   await cloudPublishAccount(em); // register in the cloud so any device can sign in
+  SESSION.dek=await randB64(32);
   await openSession(em, pw);
+  await ensureEnvelope(pw);
+  persist(); // publishes envelope doc with recovery wrap
+  setTimeout(()=>showRecoveryKey(em,rk),400);
+}
+
+/* show the Recovery Key once, with copy + confirm */
+function showRecoveryKey(email,rk){
+  const pretty=(rk.match(/.{1,8}/g)||[]).join(' ');
+  openModal(`<h3>Your Recovery Key 🔑</h3>
+  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:14px">If you ever forget your password, this key is <b style="color:var(--text)">the only way to restore your data</b>. Budgetelle can't see it and can't regenerate it.</p>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;font-family:ui-monospace,monospace;font-size:15px;letter-spacing:1px;text-align:center;margin-bottom:14px;user-select:all">${pretty}</div>
+  <div class="actions"><button class="btn btn-ghost" onclick="copyRecov()">Copy</button><button class="btn btn-gold" onclick="closeModal();recovSaved()">I've saved it safely</button></div>`);
+  sessionStorage.setItem('budgetelle.rk',email+'|'+rk);
+}
+function copyRecov(){ const v=sessionStorage.getItem('budgetelle.rk')||''; navigator.clipboard.writeText(v.split('|')[1]||'').then(()=>toast('Copied ✓')); }
+function recovSaved(){
+  const em=(sessionStorage.getItem('budgetelle.rk')||'').split('|')[0];
+  if(em){ // verify they kept a copy before dismissing for good
+    openModal(`<h3>Quick check ✓</h3><p style="color:var(--muted);font-size:13.5px;margin-bottom:14px">Paste or type a few characters from your saved Recovery Key so we know you have it:</p>
+    ${f('Type any 6+ characters of your key','<input id="rc-verify" required autocomplete="off">')}
+    <div class="actions"><button class="btn btn-ghost" onclick="showAgain()">Show key again</button><button class="btn btn-gold" onclick="verifyRecov()">Confirm</button></div>`);
+  }
+}
+function showAgain(){ const v=sessionStorage.getItem('budgetelle.rk')||''; if(v)showRecoveryKey(v.split('|')[0],v.split('|')[1]); }
+function verifyRecov(){
+  const v=sessionStorage.getItem('budgetelle.rk')||'';
+  const rk=v.split('|')[1]||'';
+  if((document.getElementById('rc-verify').value||'').trim().length<6)return toast('Type at least 6 characters from your key.');
+  closeModal();
+  toast(rk?'Recovery Key confirmed ✓ Keep it somewhere safe (password manager or paper).':'');
 }
 document.getElementById('login-form').addEventListener('submit', async e => {
   e.preventDefault();
@@ -116,6 +205,21 @@ document.getElementById('login-form').addEventListener('submit', async e => {
           // credentials accepted by the cloud — adopt this account on this device
           users[em]={salt:csalt,hash:chash};
           localStorage.setItem(LS_USERS,JSON.stringify(users));
+          // envelope format? unwrap DEK with the password KEK and restore data directly
+          const kek=await deriveKey(pw,Uint8Array.from(atob(csalt),c=>c.charCodeAt(0)));
+          let env=null;
+          try{
+            const j=await vr.clone().json();
+            if(j&&j.doc)env=await openCloudDoc(j.doc,kek);
+          }catch{}
+          if(env&&env.db){
+            await openSession(em,pw,{cloudKey:{salt:csalt,hash:chash},dek:env.dekB64,recovWrap:env.recovery});
+            DB=env.db;
+            localStorage.setItem(LS_DATA(em),await encryptJSON(SESSION.key,DB));
+            persist(); refreshAll();
+            toast('Welcome back ✓ Your vault is restored from the cloud.');
+            return;
+          }
           await openSession(em,pw,{cloudKey:{salt:csalt,hash:chash}});
           await loadCloudVault();
           toast('Welcome back ✓ Your vault is synced from the cloud.');
@@ -171,6 +275,10 @@ async function openSession(email, pass, opts) {
   SESSION.email = email;
   if(opts.cloudKey) SESSION.cred={salt:opts.cloudKey.salt,hash:opts.cloudKey.hash};
   else SESSION.cred=null;
+  // envelope material (DEK + KEK) for cloud docs in fmt:2
+  SESSION.kek=SESSION.key;
+  SESSION.dek=opts.dek||null;
+  SESSION.recovWrap=opts.recovWrap||null;
   const raw = localStorage.getItem(LS_DATA(email));
   DB = raw ? await decryptJSON(SESSION.key, JSON.parse(raw)) : blankDB();
   resetIdle();
@@ -253,7 +361,7 @@ function persist(){
     localStorage.setItem(LS_DATA(SESSION.email), str);
     // mirror the encrypted blob to the cloud so any device can pick up where this one left off
     if (SESSION.cloud || credHeaders()['bt-email']) {
-      try { await fetch('/api/vault', { method:'POST', headers:{'Content-Type':'application/json', ...credHeaders()}, body: JSON.stringify({ doc: str }) }); }
+      try { await fetch('/api/vault', { method:'POST', headers:{'Content-Type':'application/json', ...credHeaders()}, body: JSON.stringify({ doc: await buildCloudDoc() }) }); }
       catch { /* offline — local copy still saved */ }
     }
   }, 400);
@@ -1559,9 +1667,10 @@ function importData(ev){
 /* ---------- password recovery & change ---------- */
 function forgotPassword(){
   const em=document.getElementById('login-email').value.trim().toLowerCase();
-  openModal(`<h3>Set a new password</h3>
-  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:18px">Budgetelle is private by design: your data is encrypted with your password, so <b style="color:var(--text)">no one — including us — can see or recover it</b>. Setting a new password starts a fresh vault on this device; if you joined a household, open your invite link again (or enter the 6-digit code) afterwards to bring the family data back.</p>
+  openModal(`<h3>Forgot your password?</h3>
+  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:16px">Have your <b style="color:var(--text)">Recovery Key</b> (shown once when you created your vault)? Enter it below and your data is restored intact under a new password. Without it, a new password starts an empty vault — the old encrypted data can't be opened by anyone, including us.</p>
   ${f('Email','<input id="fp-email" type="email" value="'+escAttr(em)+'" required placeholder="you@example.com">')}
+  ${f('Recovery Key (paste if you have it)','<input id="fp-recov" autocomplete="off" spellcheck="false" placeholder="Leave blank to start fresh instead">')}
   ${f('New password (min 6 characters)','<input id="fp-pass" type="password" minlength="6" required>' )}
   ${f('Confirm new password','<input id="fp-pass2" type="password" minlength="6" required>')}
   <p class="err" id="fp-err"></p>
@@ -1569,22 +1678,63 @@ function forgotPassword(){
 }
 async function doReset(){
   const em=v('fp-email').trim().toLowerCase(),p1=v('fp-pass'),p2=v('fp-pass2');
+  const rkRaw=(v('fp-recov')||'').replace(/\s+/g,'');
   const errEl=document.getElementById('fp-err');
   if(p1!==p2){errEl.textContent='Passwords do not match.';errEl.style.display='block';return;}
-  const hadLocal=!!getUsers()[em];
-  // Zero-knowledge: the old encrypted data cannot be decrypted either way, so a
-  // missing local record must NOT block the reset — just warn and proceed.
-  if(!hadLocal && !confirm('No vault record for '+em+' was found on this device. A fresh password will be set and an empty vault started here (old data cannot be decrypted). Continue?'))return;
-  // wipe old encrypted blob, register new credential
-  localStorage.removeItem(LS_DATA(em));
   const users=getUsers();
+  const hadLocal=!!users[em];
+  // Try recovery first: pull the cloud doc and open it with the Recovery Key
+  let restored=null;
+  if(rkRaw){
+    restored=await recoverViaKey(em,rkRaw,errEl);
+    if(restored===false)return; // key entered but didn't match — error already shown
+  }
+  if(restored&&restored.db){
+    // success: re-key everything around the NEW password, same DEK — data intact
+    const salt=crypto.getRandomValues(new Uint8Array(16));
+    const hash=await sha256hex(em+':'+p1+':'+btoa(String.fromCharCode(...salt)));
+    users[em]={salt:btoa(String.fromCharCode(...salt)),hash};
+    localStorage.setItem(LS_USERS,JSON.stringify(users));
+    localStorage.setItem(LS_RECOV(em),restored.rk);
+    await cloudResetAccount(em);
+    SESSION.email=em;
+    SESSION.cred={salt:btoa(String.fromCharCode(...salt)),hash};
+    SESSION.key=await deriveKey(p1,salt);
+    SESSION.kek=SESSION.key;
+    SESSION.dek=restored.dekB64;
+    SESSION.recovWrap=await wrapB64(SESSION.dek,await keyFromB64(restored.rk));
+    DB=restored.db;
+    localStorage.setItem(LS_DATA(em),JSON.stringify(await encryptJSON(SESSION.key,DB)));
+    persist(); // republishes envelope with new wrap + recovery wrap
+    closeModal(); resetIdle(); enterApp(); refreshAll();
+    toast('Password updated ✓ All your data is restored.');
+    return;
+  }
+  // No recovery key (or none on file): fresh start
+  if(!hadLocal && !confirm('No vault record for '+em+' was found on this device and no Recovery Key was given. A fresh password will be set with an EMPTY vault (old data cannot be decrypted without the Recovery Key). Continue?'))return;
+  localStorage.removeItem(LS_DATA(em));
   const salt=crypto.getRandomValues(new Uint8Array(16));
   users[em]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(em+':'+p1+':'+btoa(String.fromCharCode(...salt)))};
   localStorage.setItem(LS_USERS,JSON.stringify(users));
   await cloudResetAccount(em); // new password valid on every device
   try{ await fetch('/api/vault',{method:'POST',headers:{'Content-Type':'application/json',
     'bt-email':em,'bt-salt':users[em].salt,'bt-hash':users[em].hash},body:JSON.stringify({doc:''})}); }catch{} // drop stale blob
-  closeModal();toast('New password set ✓ Sign in with it now.');
+  closeModal();
+  toast(restored===null&&!rkRaw?'New password set ✓ Sign in with it now. If you find your Recovery Key later, contact support within 30 days — after that the old data is gone forever.':'New password set ✓ Sign in with it now.');
+}
+/* fetch cloud doc using recovery-key authentication */
+async function recoverViaKey(em,rkRaw,errEl){
+  errEl.style.display='none';
+  try{
+    const r=await fetch('/api/recover',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:em,recovHash:await sha256hex(rkRaw)})});
+    if(!r.ok){ errEl.textContent='That Recovery Key doesn\u2019t match this email.'; errEl.style.display='block'; return false; }
+    const {doc}=await r.json();
+    if(!doc){ errEl.textContent='No cloud vault found for this email yet.'; errEl.style.display='block'; return false; }
+    const env=await openWithRecovery(doc,rkRaw);
+    if(!env){ errEl.textContent='That Recovery Key doesn\u2019t match this vault.'; errEl.style.display='block'; return false; }
+    return {db:env.db,dekB64:env.dekB64,rk:rkRaw};
+  }catch{ errEl.textContent='Couldn\u2019t reach the server — check your connection.'; errEl.style.display='block'; return false; }
 }
 async function changePassword(){
   openModal(`<h3>Change password</h3>

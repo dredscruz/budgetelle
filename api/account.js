@@ -23,7 +23,7 @@ module.exports = async (req, res) => {
     req.on('data', c => { body += c; if (body.length > 5_000) req.destroy(); });
     req.on('end', async () => {
       try {
-        const { email, salt, hash } = JSON.parse(body);
+        const { email, salt, hash, recovHash } = JSON.parse(body);
         const em = (email || '').toLowerCase();
         if (!EMAIL_RE.test(em) || !salt || !hash || typeof salt !== 'string' || typeof hash !== 'string'
             || salt.length > 200 || hash.length > 200) {
@@ -34,9 +34,15 @@ module.exports = async (req, res) => {
         if (existing) {
           const r = JSON.parse(existing);
           if (r.salt !== salt || r.hash !== hash) return res.status(403).json({ error: 'Credential mismatch' });
+          if (recovHash && typeof recovHash === 'string' && recovHash.length <= 200) {
+            await kvSet('budgetelle.recovhash.' + em, recovHash); // same credential may publish/rotate recovery hash
+          }
           return res.status(200).json({ ok: true, existed: true });
         }
         await kvSet('budgetelle.acct.' + em, JSON.stringify({ salt, hash }));
+        if (recovHash && typeof recovHash === 'string' && recovHash.length <= 200) {
+          await kvSet('budgetelle.recovhash.' + em, recovHash);
+        }
         res.status(200).json({ ok: true });
       } catch { res.status(400).json({ error: 'Bad request' }); }
     });
