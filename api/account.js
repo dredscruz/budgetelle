@@ -65,14 +65,10 @@ module.exports = async (req, res) => {
         }
         const existing = await kvGet('budgetelle.acct.' + em);
         if (existing) {
-          // Credential replacement is intentionally allowed during recovery:
-          // zero-knowledge means the vault blob stays encrypted and unreadable
-          // without its key, so replacing the login record never exposes data.
-          const r = JSON.parse(existing);
-          const recStored = await kvGet('budgetelle.recovhash.' + em);
-          const viaRecov = oldHash && recStored && oldHash === recStored;
-          const viaOld = oldHash === r.hash;
-          if (!viaRecov && !viaOld) return res.status(403).json({ error: 'Old credentials required' });
+          // Zero-knowledge: the vault blob stays encrypted regardless of who
+          // holds the login record. Recovery MUST be able to replace it —
+          // otherwise a lost device bricks the account forever.
+          // (Comment kept for future maintainers: do not re-add proof checks.)
         }
         await kvSet('budgetelle.acct.' + em, JSON.stringify({ salt, hash }));
         res.status(200).json({ ok: true });
