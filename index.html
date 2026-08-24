@@ -33,6 +33,10 @@ input:focus,select:focus{outline:none;border-color:var(--gold)}
 .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
 .btn-danger{background:transparent;color:var(--red);border:1px solid var(--red)}
 .link-btn{background:none;border:none;color:var(--gold);font-size:13px;text-decoration:underline}
+.pw-wrap{position:relative;display:flex;align-items:center}
+.pw-wrap input{width:100%;padding-right:42px}
+.pw-eye{position:absolute;right:8px;background:none;border:none;cursor:pointer;font-size:16px;line-height:1;padding:4px;opacity:.75}
+.pw-eye:hover{opacity:1}
 @keyframes nudgePulse{0%,100%{transform:none}25%{transform:scale(1.12)}50%{transform:scale(1)}75%{transform:scale(1.08)}}
 .link-btn.nudge{animation:nudgePulse .9s ease 2;color:#ffd76a;text-decoration-thickness:2px}
 
@@ -242,7 +246,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       <p class="sub">Sign in to your vault, or create one in seconds — new and existing, you're in the right place.</p>
       <form id="login-form">
         <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com" required></div>
-        <div class="field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" required minlength="6"></div>
+        <div class="field"><label>Password</label><div class="pw-wrap"><input type="password" id="login-pass" placeholder="••••••••" required minlength="6" autocomplete="current-password"><button type="button" class="pw-eye" onclick="togglePw('login-pass',this)" aria-label="Show password">👁</button></div></div>
         <p class="err" id="login-err">Wrong email or password.</p>
         <button class="btn btn-gold" type="submit">Sign in</button>
       </form>

@@ -60,6 +60,21 @@ function blankDB() {
 const LS_USERS = 'budgetelle.users';
 const LS_DATA = e => `budgetelle.vault.${e}`;
 function getUsers() { try { return JSON.parse(localStorage.getItem(LS_USERS)) || {}; } catch { return {}; } }
+/* password field with show/hide eye toggle */
+function pwField(id,label,attrs){
+  attrs=attrs||'';
+  return `<div class="field"><label>${label}</label><div class="pw-wrap">
+    <input type="password" id="${id}" ${attrs} autocomplete="${attrs.includes('new')?'new-password':'current-password'}">
+    <button type="button" class="pw-eye" onclick="togglePw('${id}',this)" aria-label="Show password" tabindex="-1">👁</button>
+  </div></div>`;
+}
+function togglePw(id,btn){
+  const el=document.getElementById(id);
+  const show=el.type==='password';
+  el.type=show?'text':'password';
+  btn.textContent=show?'🙈':'👁';
+  btn.setAttribute('aria-label',show?'Hide password':'Show password');
+}
 
 /* ---------- cloud account sync (email/password users) ----------
    The server stores only: the PBKDF2 salt, a password-verifier hash, and the
@@ -1175,7 +1190,8 @@ function openJoinModal(codeHint,midHint){
   <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:16px">Create your own sign-in — just an email and password you'll remember. You'll land straight in the family dashboard${midHint?' with your access level':' '}.</p>
   <form onsubmit="completeJoin(event)">
     ${f('Your email','<input type="email" id="j-email" required placeholder="you@example.com">')}
-    <div class="grid2">${f('Choose a password (6+ characters)','<input type="password" id="j-pass" minlength="6" required>')}${f('Repeat password','<input type="password" id="j-pass2" minlength="6" required>')}</div>
+    ${pwField('j-pass','Choose a password (6+ characters)','minlength="6" required placeholder="••••••••"')}
+    ${pwField('j-pass2','Repeat password','minlength="6" required placeholder="••••••••"')}
     <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Create my sign-in</button></div>
   </form>`);
 }
@@ -1671,8 +1687,8 @@ function forgotPassword(){
   <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:16px">Have your <b style="color:var(--text)">Recovery Key</b> (shown once when you created your vault)? Enter it below and your data is restored intact under a new password. Without it, a new password starts an empty vault — the old encrypted data can't be opened by anyone, including us.</p>
   ${f('Email','<input id="fp-email" type="email" value="'+escAttr(em)+'" required placeholder="you@example.com">')}
   ${f('Recovery Key (paste if you have it)','<input id="fp-recov" autocomplete="off" spellcheck="false" placeholder="Leave blank to start fresh instead">')}
-  ${f('New password (min 6 characters)','<input id="fp-pass" type="password" minlength="6" required>' )}
-  ${f('Confirm new password','<input id="fp-pass2" type="password" minlength="6" required>')}
+  ${pwField('fp-pass','New password (min 6 characters)','minlength="6" required new' )}
+  ${pwField('fp-pass2','Confirm new password','minlength="6" required new')}
   <p class="err" id="fp-err"></p>
   <div class="actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doReset()">Set new password</button></div>`);
 }
@@ -1738,9 +1754,9 @@ async function recoverViaKey(em,rkRaw,errEl){
 }
 async function changePassword(){
   openModal(`<h3>Change password</h3>
-  ${f('Current password','<input id="cp-old" type="password" required>')}
-  ${f('New password (min 6)','<input id="cp-new" type="password" minlength="6" required>')}
-  ${f('Confirm new password','<input id="cp-new2" type="password" minlength="6" required>')}
+  ${pwField('cp-old','Current password','required autocomplete="current-password"')}
+  ${pwField('cp-new','New password (min 6)','minlength="6" required new')}
+  ${pwField('cp-new2','Confirm new password','minlength="6" required new')}
   <div class="actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="doChangePass()">Update</button></div>`);
 }
 async function doChangePass(){
