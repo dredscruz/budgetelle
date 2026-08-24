@@ -26,7 +26,7 @@ async function sha256hex(s) {
 }
 
 /* ---------- state ---------- */
-let SESSION = { key: null, email: null, timer: null };
+let SESSION = { key: null, email: null, timer: null, cloud: false, memberScope: null };
 const CURRENCIES = {
   USD:{s:'$',n:'US Dollar'}, EUR:{s:'€'}, GBP:{s:'£'}, AED:{s:'AED '}, PHP:{s:'₱'},
   INR:{s:'₹'}, JPY:{s:'¥'}, CAD:{s:'C$'}, AUD:{s:'A$'}, SGD:{s:'S$'}, CHF:{s:'CHF '}, SAR:{s:'SAR '}
@@ -79,9 +79,41 @@ document.getElementById('login-form').addEventListener('submit', async e => {
   const em = document.getElementById('login-email').value.trim().toLowerCase();
   const pw = document.getElementById('login-pass').value;
   const u = getUsers()[em];
-  if (!u) return showLoginErr(true);
+  if (!u) {
+    // No local vault for this email — if the browser holds a matching Google session,
+    // sign them straight in instead of failing.
+    try{
+      const me = await (await fetch('/api/auth/me')).json();
+      if(me.authenticated && me.email && me.email.toLowerCase()===em){
+        const salt=crypto.getRandomValues(new Uint8Array(16));
+        const rp=crypto.getRandomValues(new Uint8Array(24)).reduce((s,b)=>s+b.toString(16).padStart(2,'0'),'');
+        const users=getUsers();
+        users[em]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(em+':'+rp+':'+btoa(String.fromCharCode(...salt)))};
+        localStorage.setItem(LS_USERS,JSON.stringify(users));
+        localStorage.setItem('budgetelle.gpass.'+em,rp);
+        SESSION.cloud=true;
+        await openSession(em,rp);
+        await loadCloudVault();
+        if(!DB.profile.name&&me.name){DB.profile.name=me.name.split(' ')[0];persist();}
+        logSecNow('Signed in via Google session');renderSecurity();
+        return toast(`Welcome${me.name?', '+me.name.split(' ')[0]:''} ✓`);
+      }
+    }catch{ /* fall through to error */ }
+    return showLoginErr(true);
+  }
   const hash = await sha256hex(em + ':' + pw + ':' + atob(u.salt).split('').map(c=>c.charCodeAt(0)).join(''));
-  if (hash !== u.hash) return showLoginErr(true);
+  if (hash !== u.hash) {
+    // password mismatch: maybe they signed up with Google on another device — offer the easy path
+    try{
+      const me = await (await fetch('/api/auth/me')).json();
+      if(me.authenticated && me.email && me.email.toLowerCase()===em){
+        toast('Password doesn\'t match this device — but your Google session does. One tap:');
+        document.getElementById('btn-google-label').textContent='Continue as '+(me.name||me.email);
+        return;
+      }
+    }catch{}
+    return showLoginErr(true);
+  }
   await openSession(em, pw);
 });
 function showLoginErr(v){ document.getElementById('login-err').style.display = v ? 'block' : 'none'; }
@@ -168,8 +200,14 @@ function persist(){
   clearTimeout(saveT);
   saveT = setTimeout(async ()=>{
     const blob = await encryptJSON(SESSION.key, DB);
-    localStorage.setItem(LS_DATA(SESSION.email), JSON.stringify(blob));
-  }, 250);
+    const str = JSON.stringify(blob);
+    localStorage.setItem(LS_DATA(SESSION.email), str);
+    // mirror the encrypted blob to the cloud so family members can open it on their own devices
+    if (SESSION.cloud) {
+      try { await fetch('/api/vault', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ doc: str }) }); }
+      catch { /* offline — local copy still saved */ }
+    }
+  }, 400);
 }
 window.addEventListener('beforeunload', ()=>{ /* best effort */ });
 
@@ -913,10 +951,29 @@ function inviteMember(id){
   const token=makeInviteToken(id);
   const url=location.origin+location.pathname+'?invite='+encodeURIComponent(token);
   openModal(`<h3>Invite ${escAttr(m.name)}</h3>
-  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:16px">Share this link with <b style="color:var(--text)">${escAttr(m.name)}</b>. Opening it on their device shows this household's dashboard in <b style="color:var(--text)">${canSeeAll(m.role)?'full view':'their-entries-only view'}</b> (role: ${escAttr(m.role)}), matching your access rules. Anyone with the link can view — don't post it publicly.</p>
-  <div class="field"><label>Invite link</label><input id="inv-url" readonly value="${escAttr(url)}"></div>
-  <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Close</button>
-  <button class="btn btn-blue" onclick="navigator.clipboard.writeText(document.getElementById('inv-url').value).then(()=>toast('Link copied ✓'))">Copy link</button></div>`);
+  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:16px">The easiest way: send <b style="color:var(--text)">${escAttr(m.name)}</b> a <b style="color:var(--text)">household code</b>. On their own device they pick <b style="color:var(--text)">Continue with Google</b>, type the 6-digit code, and they're in${canSeeAll(m.role)?' with full view':' seeing only their own entries'}.</p>
+  <div class="field"><label>Household code</label>
+    <div style="display:flex;gap:10px;align-items:center">
+      <input id="hh-gen-code" readonly placeholder="Generate a code →" style="flex:1;font-size:20px;letter-spacing:6px;text-align:center;font-weight:700">
+      <button class="btn btn-blue" onclick="genCode('${id}')">Generate</button>
+      <button class="btn btn-ghost" onclick="navigator.clipboard.writeText(document.getElementById('hh-gen-code').value).then(()=>toast('Code copied ✓'))">Copy</button>
+    </div>
+  </div>
+  <p style="color:var(--muted);font-size:12.5px;margin-top:10px">Codes expire after 7 days. Same-device alternative link below.</p>
+  <div class="field"><label>Invite link (same device)</label><input id="inv-url" readonly value="${escAttr(url)}"></div>
+  <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Close</button></div>`);
+}
+async function genCode(memberId){
+  try{
+    // make sure the vault is mirrored to the cloud first, so the member's device can fetch it
+    const blob=localStorage.getItem(LS_DATA(SESSION.email));
+    if(blob&&SESSION.cloud){ await fetch('/api/vault',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc:blob})}); }
+    if(!blob){ return toast('Sign in once more so the vault can be shared.'); }
+    const r=await fetch('/api/invite-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',memberId})});
+    const d=await r.json();
+    if(!r.ok) return toast(d.error||'Couldn\'t generate a code.');
+    document.getElementById('hh-gen-code').value=d.code;
+  }catch{ toast('Couldn\'t generate a code — check your connection.'); }
 }
 function handleInvite(){
   const p=new URLSearchParams(location.search);
@@ -1432,6 +1489,7 @@ async function handleGoogleReturn(){
   const p=new URLSearchParams(location.search);
   const auth=p.get('auth');
   if(!auth)return;
+  const pendingCode=p.get('code')||sessionStorage.getItem('budgetelle.pendingCode');
   history.replaceState(null,'',location.pathname);
   if(auth==='google'){
     const email=p.get('email'),name=p.get('name')||'';
@@ -1443,23 +1501,141 @@ async function handleGoogleReturn(){
       const rp=crypto.getRandomValues(new Uint8Array(24)).reduce((s,b)=>s+b.toString(16).padStart(2,'0'),'');
       users[email]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(email+':'+rp+':'+btoa(String.fromCharCode(...salt)))};
       localStorage.setItem(LS_USERS,JSON.stringify(users));
-      localStorage.setItem('budgetelle.gpass.'+email,rp); // lets them also unlock locally
+      localStorage.setItem('budgetelle.gpass.old.'+email,rp); // legacy per-device password, kept for one-time migration
     }
     document.getElementById('login-email').value=email;
-    const pw=localStorage.getItem('budgetelle.gpass.'+email);
-    document.getElementById('login-pass').value=pw;
-    await openSession(email,pw);
+    // Stable unlock key shared across devices: generated once, stored with the
+    // Google session's account so family devices can open the same vault.
+    let sk=localStorage.getItem('budgetelle.sharekey.'+email);
+    if(!sk){
+      const bytes=crypto.getRandomValues(new Uint8Array(32));
+      sk=btoa(String.fromCharCode(...bytes));
+      localStorage.setItem('budgetelle.sharekey.'+email,sk);
+      // preserve any previous per-device password so one-time migration can decrypt the local vault
+      const prev=localStorage.getItem('budgetelle.gpass.'+email);
+      if(prev&&prev!==sk)localStorage.setItem('budgetelle.gpass.old.'+email,prev);
+      fetch('/api/share-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pw:sk})}).catch(()=>{});
+    } else {
+      // prefer the stored copy; if this device lost it, pull from the server
+      try{
+        const kr=await (await fetch('/api/share-key')).json();
+        if(kr.pw){ sk=kr.pw; localStorage.setItem('budgetelle.sharekey.'+email,sk); }
+        else { fetch('/api/share-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pw:sk})}).catch(()=>{}); }
+      }catch{}
+    }
+    localStorage.setItem('budgetelle.gpass.'+email,sk);
+    document.getElementById('login-pass').value=sk;
+    // Migration: this device's existing vault may be encrypted with the OLD
+    // per-device password. Try it first; if it opens, re-encrypt everything
+    // with the shared key so all devices (and household codes) can unlock it.
+    let usePw=sk;
+    const oldPw0=localStorage.getItem('budgetelle.gpass.old.'+email);
+    if(localStorage.getItem(LS_DATA(email))&&oldPw0&&oldPw0!==sk){
+      try{
+        const lkey=await deriveKey(oldPw0,Uint8Array.from(atob(getUsers()[email].salt),c=>c.charCodeAt(0)));
+        const data=await decryptJSON(lkey,JSON.parse(localStorage.getItem(LS_DATA(email))));
+        // success — rewrite the vault + account record against the shared key
+        const newsalt=crypto.getRandomValues(new Uint8Array(16));
+        const skey=await deriveKey(sk,newsalt);
+        const blob=await encryptJSON(skey,data);
+        localStorage.setItem(LS_DATA(email),JSON.stringify(blob));
+        const users=getUsers();
+        users[email]={salt:btoa(String.fromCharCode(...newsalt)),hash:await sha256hex(email+':'+sk+':'+btoa(String.fromCharCode(...newsalt)))};
+        localStorage.setItem(LS_USERS,JSON.stringify(users));
+        toast('Vault upgraded for easy sign-in ✓');
+      }catch{ /* old password doesn't fit — normal path */ }
+    }
+    SESSION.cloud=true;
+    await openSession(email,usePw);
     if(name&&!DB.profile.name){DB.profile.name=name.split(' ')[0];persist();}
+    // pull the household's encrypted vault from the cloud if this device doesn't have it (or cloud is newer)
+    await loadCloudVault();
     logSecNow('Signed in with Google');renderSecurity();
     toast(`Welcome${name?', '+name.split(' ')[0]:''} — signed in with Google ✓`);
+    if(pendingCode){ sessionStorage.removeItem('budgetelle.pendingCode'); await redeemInviteCode(pendingCode); }
   } else if(auth==='failed'){
     toast('Google sign-in didn\'t complete. Please try again or use email & password.');
   } else if(auth==='unconfigured'){
     toast('Google sign-in is being set up — use email & password for now.');
   }
 }
+async function loadCloudVault(){
+  try{
+    const r=await fetch('/api/vault');
+    if(!r.ok)return;
+    const {doc}=await r.json();
+    if(doc && !localStorage.getItem(LS_DATA(SESSION.email))){
+      // first time on this device: fetch the account's unlock key, then decrypt
+      try{
+        const kr=await (await fetch('/api/share-key')).json();
+        const pw=kr.pw||localStorage.getItem('budgetelle.gpass.'+SESSION.email);
+        if(!pw)return;
+        localStorage.setItem('budgetelle.gpass.'+SESSION.email,pw);
+        SESSION.key=await deriveKey(pw,Uint8Array.from(atob(getUsers()[SESSION.email].salt),c=>c.charCodeAt(0)));
+        DB=await decryptJSON(SESSION.key,JSON.parse(doc));
+        localStorage.setItem(LS_DATA(SESSION.email),doc);
+        resetIdle();refreshAll();
+      }catch{ /* keep local */ }
+    }
+  }catch{ /* keep local copy */ }
+}
+// Redeem a household code: opens the owner's vault under this member's scope
+async function redeemInviteCode(code){
+  try{
+    const r=await fetch('/api/invite-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'redeem',code})});
+    const d=await r.json();
+    if(!r.ok) return toast(d.error||'That code didn\'t work.');
+    if(d.email===SESSION.email){ delete DB.settings.activeMemberId; DB.settings.familyView=false; persist(); refreshAll(); return toast('You are the vault owner — full view ✓'); }
+    // switch this session to the owner's vault, scoped to the invited member
+    const [vr, kr] = await Promise.all([fetch('/api/vault?email='+encodeURIComponent(d.email)), fetch('/api/share-key?email='+encodeURIComponent(d.email))]);
+    const vd=await vr.json(); const kd=await kr.json();
+    if(!vd.doc) return toast('The household vault isn\'t shared yet — ask '+(d.email||'the owner')+' to sign in once online.');
+    if(!kd.pw) return toast('Household key not shared yet — ask the owner to sign in once more.');
+    const opw=kd.pw;
+    const users=getUsers();
+    const osalt=crypto.getRandomValues(new Uint8Array(16));
+    if(!users[d.email]){
+      const rp=crypto.getRandomValues(new Uint8Array(24)).reduce((s,b)=>s+b.toString(16).padStart(2,'0'),'');
+      users[d.email]={salt:btoa(String.fromCharCode(...osalt)),hash:await sha256hex(d.email+':'+rp+':'+btoa(String.fromCharCode(...osalt)))};
+      localStorage.setItem(LS_USERS,JSON.stringify(users));
+    }
+    const key=await deriveKey(opw,Uint8Array.from(atob(getUsers()[d.email].salt),c=>c.charCodeAt(0)));
+    const vault=await decryptJSON(key,JSON.parse(vd.doc));
+    // adopt the household vault wholesale: same unlock material on both devices
+    localStorage.setItem(LS_DATA(d.email),vd.doc);
+    localStorage.setItem('budgetelle.gpass.'+d.email,opw);
+    SESSION.cloud=false; // members read their local mirror; owner's edits re-sync from their device
+    SESSION.email=d.email;
+    SESSION.key=key;
+    DB=vault;
+    DB.settings.activeMemberId=d.mid;
+    const m=DB.members.find(x=>x.id===d.mid);
+    DB.settings.familyView=m?!canSeeAll(m.role):false;
+    persist();
+    resetIdle();enterApp();
+    logSecNow('Joined via household code ('+(m?m.role:'member')+')');
+    toast('Welcome'+(m?', '+m.name:'')+' — you\'re in ✓'+(m&&!canSeeAll(m.role)?' (your entries only)':''));
+  }catch(e){ toast('Couldn\'t open that household code.'); }
+}
 handleGoogleReturn();
 handleInvite();
+
+/* ---------- household code: join from login screen ---------- */
+async function joinWithCode(e){
+  e.preventDefault();
+  const code=document.getElementById('hh-code').value.trim();
+  if(!/^\d{6}$/.test(code)) return toast('Enter the 6-digit household code.');
+  // must be signed in with Google first — check server session
+  try{
+    const me=await (await fetch('/api/auth/me')).json();
+    if(!me.authenticated){
+      sessionStorage.setItem('budgetelle.pendingCode',code);
+      toast('Sign in with Google first — then you\'re straight in.');
+      return googleSignIn();
+    }
+    await redeemInviteCode(code);
+  }catch{ toast('Couldn\'t reach the server. Try again.'); }
+}
 
 /* ---------- Quick capture: natural language, dictation, receipt scan ---------- */
 const QC_KEYWORDS=[
