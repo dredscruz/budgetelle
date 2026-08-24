@@ -1,29 +1,35 @@
 // Cloud vault: store/retrieve the encrypted vault blob.
-// GET ?email=... -> { doc } for that account, but ONLY when the requester holds
-//                   a valid household code redemption for it; otherwise only
-//                   their own doc is returned. POST saves the requester's own.
+// Auth: Google session cookie, OR a signed invite capability token
+//       (header 'bt-cap' or ?cap=) issued when a household code/link is redeemed.
 const { verify, parseCookies } = require('./_lib/session');
 const { kvGet, kvSet } = require('./_lib/store');
 
-module.exports = async (req, res) => {
+function auth(req, res) {
   const s = verify(parseCookies(req).bt_session);
-  if (!s || !s.email) return res.status(401).json({ error: 'Not signed in' });
-  const mine = 'budgetelle.vault.' + s.email.toLowerCase();
+  if (s && s.email) return { account: s.email.toLowerCase() };
+  const url = new URL(req.url, 'http://x');
+  let capRaw = req.headers['bt-cap'] || url.searchParams.get('cap');
+  if (capRaw && capRaw.includes('.')) capRaw = capRaw.split(',').pop(); // cookie-style header
+  const cap = verify(capRaw);
+  if (cap && cap.v === 1 && cap.for) return { account: cap.for, member: cap.mid };
+  res.status(401).json({ error: 'Sign in or use an invite link' });
+  return null;
+}
+
+module.exports = async (req, res) => {
+  const a = auth(req, res); if (!a) return;
+  const mine = 'budgetelle.vault.' + a.account;
 
   if (req.method === 'GET') {
-    const url = new URL(req.url, 'http://x');
-    let target = url.searchParams.get('email');
-    if (target) {
-      target = target.toLowerCase();
-      // cross-account read is allowed only with a recently redeemed code
-      const redemption = await kvGet('budgetelle.redeemed.' + s.email.toLowerCase());
-      if (redemption !== target) return res.status(200).json({ doc: null });
-      return res.status(200).json({ doc: await kvGet('budgetelle.vault.' + target) });
-    }
     return res.status(200).json({ doc: await kvGet(mine) });
   }
 
   if (req.method === 'POST') {
+    // only the owner's own Google session may write the vault
+    const s = verify(parseCookies(req).bt_session);
+    if (!s || !s.email || s.email.toLowerCase() !== a.account) {
+      return res.status(403).json({ error: 'Only the owner can update the vault' });
+    }
     let body = '';
     req.on('data', c => { body += c; if (body.length > 3_000_000) req.destroy(); });
     req.on('end', async () => {

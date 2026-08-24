@@ -946,53 +946,119 @@ function makeInviteToken(id){
   const m=DB.members.find(x=>x.id===id); if(!m)return '';
   return btoa(JSON.stringify({v:1,email:SESSION.email,mid:id,role:m.role,t:Date.now()})).replace(/=+$/,'');
 }
-function inviteMember(id){
+async function inviteMember(id){
   const m=DB.members.find(x=>x.id===id);if(!m)return;
-  const token=makeInviteToken(id);
-  const url=location.origin+location.pathname+'?invite='+encodeURIComponent(token);
-  openModal(`<h3>Invite ${escAttr(m.name)}</h3>
-  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:16px">The easiest way: send <b style="color:var(--text)">${escAttr(m.name)}</b> a <b style="color:var(--text)">household code</b>. On their own device they pick <b style="color:var(--text)">Continue with Google</b>, type the 6-digit code, and they're in${canSeeAll(m.role)?' with full view':' seeing only their own entries'}.</p>
-  <div class="field"><label>Household code</label>
-    <div style="display:flex;gap:10px;align-items:center">
-      <input id="hh-gen-code" readonly placeholder="Generate a code →" style="flex:1;font-size:20px;letter-spacing:6px;text-align:center;font-weight:700">
-      <button class="btn btn-blue" onclick="genCode('${id}')">Generate</button>
-      <button class="btn btn-ghost" onclick="navigator.clipboard.writeText(document.getElementById('hh-gen-code').value).then(()=>toast('Code copied ✓'))">Copy</button>
-    </div>
-  </div>
-  <p style="color:var(--muted);font-size:12.5px;margin-top:10px">Codes expire after 7 days. Same-device alternative link below.</p>
-  <div class="field"><label>Invite link (same device)</label><input id="inv-url" readonly value="${escAttr(url)}"></div>
+  openModal(`<h3>Invite ${escAttr(m.name)}</h3><p style="color:var(--muted);font-size:13.5px">Creating your invite link…</p>
   <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Close</button></div>`);
-}
-async function genCode(memberId){
   try{
-    // make sure the vault is mirrored to the cloud first, so the member's device can fetch it
+    // ensure vault + unlock key are shared so the recipient's device can open them
     const blob=localStorage.getItem(LS_DATA(SESSION.email));
-    if(blob&&SESSION.cloud){ await fetch('/api/vault',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc:blob})}); }
-    if(!blob){ return toast('Sign in once more so the vault can be shared.'); }
-    const r=await fetch('/api/invite-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',memberId})});
+    const sk=localStorage.getItem('budgetelle.sharekey.'+SESSION.email)||localStorage.getItem('budgetelle.gpass.'+SESSION.email);
+    if(blob&&SESSION.cloud){ await fetch('/api/vault',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc:blob})}).catch(()=>{}); }
+    if(sk){ await fetch('/api/share-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pw:sk})}).catch(()=>{}); }
+    const r=await fetch('/api/invite-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',memberId:id})});
     const d=await r.json();
-    if(!r.ok) return toast(d.error||'Couldn\'t generate a code.');
-    document.getElementById('hh-gen-code').value=d.code;
-  }catch{ toast('Couldn\'t generate a code — check your connection.'); }
+    if(!r.ok) throw new Error(d.error||'failed');
+    const url=location.origin+location.pathname+'?join='+d.code;
+    openModal(`<h3>Invite ${escAttr(m.name)}</h3>
+    <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:16px">Send this link to <b style="color:var(--text)">${escAttr(m.name)}</b>. Opening it, they choose their <b style="color:var(--text)">own email &amp; password</b> and land straight in the household${canSeeAll(m.role)?' with full view':' seeing only their own entries'}.</p>
+    <div class="field"><label>Invite link</label>
+      <div style="display:flex;gap:10px;align-items:center">
+        <input id="inv-url" readonly value="${escAttr(url)}" style="flex:1;font-size:12.5px">
+        <button class="btn btn-blue" onclick="copyLink()">Copy link</button>
+      </div>
+    </div>
+    <p style="color:var(--muted);font-size:12.5px;margin-top:10px">Works for 7 days · code alone also works in the “Household invite code” box on the sign-in page.</p>
+    <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Close</button></div>`);
+  }catch{ closeModal(); toast('Couldn\'t create the invite — check your connection.'); }
 }
+function copyLink(){ navigator.clipboard.writeText(document.getElementById('inv-url').value).then(()=>toast('Link copied ✓')); }
 function handleInvite(){
   const p=new URLSearchParams(location.search);
-  const tok=p.get('invite'); if(!tok)return;
+  const tok=p.get('invite')||p.get('join'); // 'join' = 6-digit code from the easy link
+  if(!tok)return;
   history.replaceState(null,'',location.pathname);
+  const code=/^\d{6}$/.test(tok)?tok:null;
   try{
-    const d=JSON.parse(atob(tok));
-    if(!d.v||!d.email||!d.mid)throw 0;
-    const users=getUsers();
-    if(!users[d.email]){
-      toast('Invite received — but the vault owner must sign in on this device once first to sync it.');
-      document.getElementById('login-email').value=d.email;
-      return;
+    let d={};
+    if(!code){ d=JSON.parse(atob(tok)); if(!d.v||!d.email||!d.mid)throw 0; }
+    sessionStorage.setItem('budgetelle.joinCode',code||'');
+    openJoinModal(code, d.mid);
+    if(code){
+      // pre-validate the code so we can greet them by the household name
+      redeemPreview(code);
     }
-    // stash invite so after sign-in we apply the restricted view
-    sessionStorage.setItem('budgetelle.invite',tok);
-    toast('Invite for '+d.email+' detected — sign in to continue.');
-    document.getElementById('login-email').value=d.email;
   }catch{toast('That invite link is invalid.');}
+}
+async function redeemPreview(code){
+  try{
+    const r=await fetch('/api/invite-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'redeem',code})});
+    const d=await r.json();
+    if(r.ok&&d.cap) sessionStorage.setItem('budgetelle.joinCap',d.cap);
+  }catch{}
+}
+function openJoinModal(codeHint,midHint){
+  openModal(`<h3>Join the household</h3>
+  <p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin-bottom:16px">Create your own sign-in — just an email and password you'll remember. You'll land straight in the family dashboard${midHint?' with your access level':' '}.</p>
+  <form onsubmit="completeJoin(event)">
+    ${f('Your email','<input type="email" id="j-email" required placeholder="you@example.com">')}
+    <div class="grid2">${f('Choose a password (6+ characters)','<input type="password" id="j-pass" minlength="6" required>')}${f('Repeat password','<input type="password" id="j-pass2" minlength="6" required>')}</div>
+    <div class="actions"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-gold">Create my sign-in</button></div>
+  </form>`);
+}
+async function completeJoin(e){
+  e.preventDefault();
+  const em=document.getElementById('j-email').value.trim().toLowerCase();
+  const pw=document.getElementById('j-pass').value;
+  if(pw!==document.getElementById('j-pass2').value) return toast('Passwords don\'t match.');
+  const code=sessionStorage.getItem('budgetelle.joinCode');
+  let cap=sessionStorage.getItem('budgetelle.joinCap');
+  closeModal();toast('Setting up your vault…');
+  try{
+    if(!cap){
+      if(!code) throw new Error('nocap');
+      const r=await fetch('/api/invite-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'redeem',code})});
+      const d=await r.json();
+      if(!r.ok) return toast(d.error||'That invite has expired.');
+      cap=d.cap;
+    }
+    // local account so they can sign back in with email+password
+    const salt=crypto.getRandomValues(new Uint8Array(16));
+    const users=getUsers();
+    users[em]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(em+':'+pw+':'+btoa(String.fromCharCode(...salt)))};
+    localStorage.setItem(LS_USERS,JSON.stringify(users));
+    document.getElementById('login-email').value=em;
+    document.getElementById('login-pass').value=pw;
+    SESSION.cloud=false; // member device keeps a mirror; owner's device syncs the cloud copy
+    await openSession(em,pw);
+    // fetch the household's encrypted vault + unlock key using the invite capability
+    const [vr,kr]=await Promise.all([
+      fetch('/api/vault',{headers:{'bt-cap':cap}}),
+      fetch('/api/share-key',{headers:{'bt-cap':cap}})
+    ]);
+    const vd=await vr.json(), kd=await kr.json();
+    if(!vd.doc||!kd.pw){
+      lockVault();
+      return toast('The household vault isn\'t shared yet — ask the owner to sign in once more, then use the link again.');
+    }
+    // decrypt the household vault with the owner's unlock key + owner's salt
+    const od=JSON.parse(atob(cap.split('.')[0]));
+    const osaltB64=(await (await fetch('/api/owner-salt?cap='+encodeURIComponent(cap))).json()).salt;
+    const realKey=await deriveKey(kd.pw,Uint8Array.from(atob(osaltB64),c=>c.charCodeAt(0)));
+    DB=await decryptJSON(realKey,JSON.parse(vd.doc));
+    // keep a working mirror under their own account
+    SESSION.key=realKey;
+    localStorage.setItem(LS_DATA(em),JSON.stringify(await encryptJSON(realKey,DB)));
+    localStorage.setItem('budgetelle.memberOf.'+em,od.for);
+    localStorage.setItem('budgetelle.memberCap.'+em,cap);
+    const m=DB.members.find(x=>x.id===od.mid);
+    DB.settings.activeMemberId=od.mid;
+    DB.settings.familyView=m?!canSeeAll(m.role):false;
+    persist();
+    resetIdle();enterApp();
+    logSecNow('Joined household via invite ('+(m?m.role:'member')+')');
+    toast('Welcome'+(m?', '+m.name:'')+' ✓ Your sign-in is ready — same email and password next time.');
+  }catch(err){ toast('Couldn\'t complete the join. Check the link and try again.'); }
 }
 function applyInviteIfAny(){
   const tok=sessionStorage.getItem('budgetelle.invite'); if(!tok)return false;
@@ -1514,7 +1580,10 @@ async function handleGoogleReturn(){
       // preserve any previous per-device password so one-time migration can decrypt the local vault
       const prev=localStorage.getItem('budgetelle.gpass.'+email);
       if(prev&&prev!==sk)localStorage.setItem('budgetelle.gpass.old.'+email,prev);
+      // publish unlock key + salt so invited family devices can open the household
       fetch('/api/share-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pw:sk})}).catch(()=>{});
+      const curSalt=getUsers()[email]?.salt;
+      if(curSalt)fetch('/api/owner-salt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,salt:curSalt})}).catch(()=>{});
     } else {
       // prefer the stored copy; if this device lost it, pull from the server
       try{
@@ -1522,6 +1591,9 @@ async function handleGoogleReturn(){
         if(kr.pw){ sk=kr.pw; localStorage.setItem('budgetelle.sharekey.'+email,sk); }
         else { fetch('/api/share-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pw:sk})}).catch(()=>{}); }
       }catch{}
+      // keep salt published for invited members
+      const curSalt=getUsers()[email]?.salt;
+      if(curSalt)fetch('/api/owner-salt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,salt:curSalt})}).catch(()=>{});
     }
     localStorage.setItem('budgetelle.gpass.'+email,sk);
     document.getElementById('login-pass').value=sk;
