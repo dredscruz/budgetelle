@@ -65,15 +65,14 @@ module.exports = async (req, res) => {
         }
         const existing = await kvGet('budgetelle.acct.' + em);
         if (existing) {
+          // Credential replacement is intentionally allowed during recovery:
+          // zero-knowledge means the vault blob stays encrypted and unreadable
+          // without its key, so replacing the login record never exposes data.
           const r = JSON.parse(existing);
-          // Authorize with ANY of: old password hash, recovery-key hash,
-          // or (noKey) the hash of the device's own local record — a user
-          // resetting from their signed-in-but-out-of-sync device.
           const recStored = await kvGet('budgetelle.recovhash.' + em);
           const viaRecov = oldHash && recStored && oldHash === recStored;
           const viaOld = oldHash === r.hash;
-          const viaLocal = noKey === true && oldHash && typeof oldHash === 'string' && oldHash.length <= 200;
-          if (!viaRecov && !viaOld && !viaLocal) return res.status(403).json({ error: 'Old credentials required' });
+          if (!viaRecov && !viaOld) return res.status(403).json({ error: 'Old credentials required' });
         }
         await kvSet('budgetelle.acct.' + em, JSON.stringify({ salt, hash }));
         res.status(200).json({ ok: true });
