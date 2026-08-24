@@ -208,8 +208,20 @@ function verifyRecov(){
 }
 document.getElementById('login-form').addEventListener('submit', async e => {
   e.preventDefault();
+  showLoginErr(false);
   const em = document.getElementById('login-email').value.trim().toLowerCase();
   const pw = document.getElementById('login-pass').value;
+  try{
+    await doLogin(em,pw);
+  }catch(err){
+    // LAST RESORT — never leave the user without an explanation
+    console.error('Login failure detail:',err);
+    alert('Sign-in hit an unexpected error ('+(err&&err.message||err)+'). Please try again. If it keeps happening, use Forgot your password below.');
+    showLoginErr(true,'Unexpected error — see the popup for details.');
+  }
+});
+async function doLogin(em,pw){
+  if(!em||!pw)throw new Error('Enter your email and password.');
   const u = getUsers()[em];
   if (!u) {
     // No local record: maybe this account was created on another device.
@@ -312,8 +324,8 @@ document.getElementById('login-form').addEventListener('submit', async e => {
     }catch{}
     return showLoginErr(true,'That password doesn\u2019t match. Forgotten it? Tap \u201cForgot your password?\u201d below \u2014 you\u2019ll set a new one in seconds.');
   }
-  await openSession(em, pw).catch(()=>showLoginErr(true,'Something went wrong opening your vault. Try again, or tap \u201cForgot your password?\u201d below.'));
-});
+    await openSession(em, pw);
+}
 function showLoginErr(v,msg){ const el=document.getElementById('login-err'); if(msg)el.textContent=msg; el.style.display=v?'block':'none'; if(v){ const fl=document.getElementById('link-forgot'); if(fl){fl.classList.remove('nudge'); void fl.offsetWidth; fl.classList.add('nudge');} } }
 
 async function openSession(email, pass, opts) {
