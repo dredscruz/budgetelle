@@ -278,7 +278,7 @@ document.getElementById('login-form').addEventListener('submit', async e => {
     }catch{}
     return showLoginErr(true,'That password doesn\u2019t match. Forgotten it? Tap \u201cForgot your password?\u201d below \u2014 you\u2019ll set a new one in seconds.');
   }
-  await openSession(em, pw);
+  await openSession(em, pw).catch(()=>showLoginErr(true,'Something went wrong opening your vault. Try again, or tap \u201cForgot your password?\u201d below.'));
 });
 function showLoginErr(v,msg){ const el=document.getElementById('login-err'); if(msg)el.textContent=msg; el.style.display=v?'block':'none'; if(v){ const fl=document.getElementById('link-forgot'); if(fl){fl.classList.remove('nudge'); void fl.offsetWidth; fl.classList.add('nudge');} } }
 
@@ -295,9 +295,39 @@ async function openSession(email, pass, opts) {
   SESSION.dek=opts.dek||null;
   SESSION.recovWrap=opts.recovWrap||null;
   const raw = localStorage.getItem(LS_DATA(email));
-  DB = raw ? await decryptJSON(SESSION.key, JSON.parse(raw)) : blankDB();
+  // The local blob may be encrypted under a different key than this password
+  // (e.g. a household mirror saved under the owner's unlock key). Never let
+  // that block sign-in — fall back to blank and restore from cloud below.
+  let local = null;
+  if(raw){ try{ local=await decryptJSON(SESSION.key,JSON.parse(raw)); }catch{ local=null; } }
+  DB = local || blankDB();
   resetIdle();
   enterApp();
+  if(!local && raw){
+    // stale/unreadable local copy — pull the cloud version with our credentials
+    await restoreCloudAfterOpen(email);
+  }
+}
+/* after openSession: recover data from the cloud using whatever auth we have */
+async function restoreCloudAfterOpen(email){
+  const h=credHeaders();
+  if(!h['bt-email'])return;
+  try{
+    const r=await fetch('/api/vault',{headers:h}); if(!r.ok)return;
+    const {doc}=await r.json(); if(!doc)return;
+    let env=null;
+    try{ env=await openCloudDoc(doc,SESSION.kek); }catch{}
+    if(env&&env.db){
+      SESSION.dek=env.dekB64; SESSION.recovWrap=env.recovery;
+      DB=env.db;
+    } else {
+      // legacy format: blob encrypted directly under the account key
+      try{ DB=await decryptJSON(SESSION.key,JSON.parse(doc)); }catch{ return; }
+    }
+    localStorage.setItem(LS_DATA(email),JSON.stringify(await encryptJSON(SESSION.key,DB)));
+    refreshAll();
+    toast('Your vault was restored from the cloud ✓');
+  }catch{}
 }
 
 /* demo data for first-run so the app isn't empty */
