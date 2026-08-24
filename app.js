@@ -1802,8 +1802,12 @@ async function doReset(){
     toast('Password updated ✓ All your data is restored.');
     return;
   }
-  // No recovery key (or none on file): fresh start
-  if(!hadLocal && !confirm('No vault record for '+em+' was found on this device and no Recovery Key was given. A fresh password will be set with an EMPTY vault (old data cannot be decrypted without the Recovery Key). Continue?'))return;
+  // No recovery key given: explain plainly, but never block recovery.
+  // Only mention old data if this device actually holds some.
+  const hadBlob=!!localStorage.getItem(LS_DATA(em));
+  if(!hadLocal && !hadBlob){
+    // Fresh device, nothing at risk locally — proceed silently.
+  } else if(!confirm('No password record for '+em+' was found here. Continue to set a new password?'+(hadBlob?' Your saved data on this device cannot be decrypted without your Recovery Key and will be replaced.':'')))return;
   localStorage.removeItem(LS_DATA(em));
   const salt=crypto.getRandomValues(new Uint8Array(16));
   users[em]={salt:btoa(String.fromCharCode(...salt)),hash:await sha256hex(em+':'+p1+':'+btoa(String.fromCharCode(...salt)))};
