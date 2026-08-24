@@ -34,9 +34,10 @@ input:focus,select:focus{outline:none;border-color:var(--gold)}
 .btn-danger{background:transparent;color:var(--red);border:1px solid var(--red)}
 .link-btn{background:none;border:none;color:var(--gold);font-size:13px;text-decoration:underline}
 .pw-wrap{position:relative;display:flex;align-items:center}
-.pw-wrap input{width:100%;padding-right:42px}
-.pw-eye{position:absolute;right:8px;background:none;border:none;cursor:pointer;font-size:16px;line-height:1;padding:4px;opacity:.75}
-.pw-eye:hover{opacity:1}
+.pw-wrap input{width:100%;padding-right:44px}
+.pw-eye{position:absolute;right:6px;background:none;border:none;cursor:pointer;padding:5px;display:flex;align-items:center;justify-content:center;color:#d4af37}
+.pw-eye svg{display:block;width:20px;height:20px;stroke:#d4af37;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))}
+.pw-eye:hover svg{stroke:#ffd76a}
 @keyframes nudgePulse{0%,100%{transform:none}25%{transform:scale(1.12)}50%{transform:scale(1)}75%{transform:scale(1.08)}}
 .link-btn.nudge{animation:nudgePulse .9s ease 2;color:#ffd76a;text-decoration-thickness:2px}
 
@@ -246,7 +247,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       <p class="sub">Sign in to your vault, or create one in seconds — new and existing, you're in the right place.</p>
       <form id="login-form">
         <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com" required></div>
-        <div class="field"><label>Password</label><div class="pw-wrap"><input type="password" id="login-pass" placeholder="••••••••" required minlength="6" autocomplete="current-password"><button type="button" class="pw-eye" onclick="togglePw('login-pass',this)" aria-label="Show password">👁</button></div></div>
+        <div class="field"><label>Password</label><div class="pw-wrap"><input type="password" id="login-pass" placeholder="••••••••" required minlength="6" autocomplete="current-password"><button type="button" class="pw-eye" onclick="togglePw('login-pass',this)" aria-label="Show password"><svg viewBox="0 0 24 24" aria-hidden="true" style="display:block;width:20px;height:20px;stroke:#d4af37;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
         <p class="err" id="login-err">Wrong email or password.</p>
         <button class="btn btn-gold" type="submit">Sign in</button>
       </form>
