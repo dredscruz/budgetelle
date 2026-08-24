@@ -25,6 +25,11 @@ async function kvSet(key, value, ttlSeconds) {
   const c = restCfg();
   if (c) {
     try {
+      if (value === '') {
+        // Upstash REST SET ignores empty values — use DEL for clears
+        await fetch(`${c.url}/del/${encodeURIComponent(key)}`, { headers: { Authorization: `Bearer ${c.tok}` } });
+        return;
+      }
       const args = ttlSeconds ? ['EX', String(ttlSeconds)] : [];
       await fetch(`${c.url}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}${args.length ? '?' + args.join('=') : ''}`,
         { headers: { Authorization: `Bearer ${c.tok}` } });
